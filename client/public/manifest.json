@@ -1,0 +1,38 @@
+{
+  "name": "TradeNext OTC — Bitcoin Pro Trading",
+  "short_name": "TradeNext",
+  "start_url": "/",
+  "id": "/",
+  "display": "standalone",
+  "background_color": "#0a0e17",
+  "theme_color": "#0a0e17",
+  "orientation": "portrait",
+  "description": "High-Performance Dynamic OTC Trading App with Live Candlestick Analytics and Rapid Binary Settling",
+  "icons": [
+    {
+      "src": "/icon-192.svg",
+      "sizes": "192x192",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    },
+    {
+      "src": "/icon-512.svg",
+      "sizes": "512x512",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    }
+  ],
+  "categories": ["finance", "trading", "crypto"],
+  "shortcuts": [
+    {
+      "name": "Open BTC/USD",
+      "url": "/?asset=BTC_USD",
+      "description": "Open Bitcoin OTC live trading screen"
+    },
+    {
+      "name": "Trade History",
+      "url": "/?drawer=history",
+      "description": "View recent settled trades"
+    }
+  ]
+}

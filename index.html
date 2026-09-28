@@ -1,0 +1,403 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <title>OTC Trade Pro — Bitcoin OTC Trading</title>
+  <meta name="description" content="Professional OTC Bitcoin Trading Platform with real-time charts and instant execution.">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="theme-color" content="#0a0e17">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+  <!-- ===== Top Header Bar ===== -->
+  <header id="top-header">
+    <div class="header-left">
+      <div class="logo-mark">
+        <div class="tn-logo-circle">
+          <span class="tn-logo-text">TX</span>
+        </div>
+      </div>
+      <div class="header-branding">
+        <span class="header-title">TradeNext</span>
+        <span class="header-subtitle">Crypto Trading Platform</span>
+      </div>
+    </div>
+    <div class="header-right">
+      <div class="balance-deposit-pill" id="deposit-pill" title="Click to Deposit / Manage Balance">
+        <div class="balance-text-group">
+          <span class="balance-val" id="user-balance">$9,379.63</span>
+          <span class="deposit-subtext">Deposit Now</span>
+        </div>
+        <div class="wallet-gold-icon">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor">
+            <path d="M21 7.28V5c0-1.1-.9-2-2-2H5c-1.11 0-2 .9-2 2v14c0 1.1.89 2 2 2h14c1.1 0 2-.9 2-2v-2.28c.59-.35 1-.98 1-1.72V9c0-.74-.41-1.37-1-1.72zM20 9v6h-7V9h7zM5 19V5h14v2h-6c-1.1 0-2 .9-2 2v6c0 1.1.9 2 2 2h6v2H5z"/>
+            <circle cx="16" cy="12" r="1.5"/>
+          </svg>
+        </div>
+      </div>
+    </div>
+  </header>
+
+  <!-- ===== Chart Area ===== -->
+  <section id="chart-area">
+    <div class="chart-container" id="chart-container">
+      <canvas id="main-chart"></canvas>
+
+      <!-- Floating Chart Tools (Top Left) -->
+      <div class="chart-floating-tools">
+        <button class="chart-tool-btn" id="btn-chart-history" title="Trade History">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <circle cx="12" cy="12" r="10"></circle>
+            <polyline points="12 6 12 12 16 14"></polyline>
+          </svg>
+          <span class="history-badge-dot" id="history-badge-dot"></span>
+        </button>
+        <button class="chart-tool-btn" id="btn-chart-tools" title="Chart Indicators & Styles">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M17 3a2.828 2.828 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5L17 3z"></path>
+          </svg>
+        </button>
+      </div>
+
+      <!-- Floating Audio Mute Toggle (Bottom Left) -->
+      <div class="chart-floating-sound">
+        <button class="chart-tool-btn sound-btn" id="btn-sound-toggle" title="Toggle Sound">
+          <svg id="sound-icon-on" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"></polygon>
+            <path d="M15.54 8.46a5 5 0 0 1 0 7.07"></path>
+            <path d="M19.07 4.93a10 10 0 0 1 0 14.14"></path>
+          </svg>
+          <svg id="sound-icon-off" class="hidden" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"></polygon>
+            <line x1="23" y1="9" x2="17" y2="15"></line>
+            <line x1="17" y1="9" x2="23" y2="15"></line>
+          </svg>
+        </button>
+      </div>
+
+      <!-- OHLC display overlay -->
+      <div class="chart-overlay-info">
+        <div class="ohlc-display" id="ohlc-display">
+          <span>O <b id="ohlc-o">71390.00</b></span>
+          <span>H <b id="ohlc-h">71450.00</b></span>
+          <span>L <b id="ohlc-l">71350.00</b></span>
+          <span>C <b id="ohlc-c">71420.93</b></span>
+        </div>
+      </div>
+
+      <!-- Current price line -->
+      <div class="price-line" id="price-line">
+        <div class="price-tag" id="price-tag">$71,420.93</div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ===== Trading Controls (below chart) ===== -->
+  <section id="trade-controls">
+    <!-- Asset row + Live badge -->
+    <div class="controls-header">
+      <div class="asset-chip" id="asset-selector">
+        <div class="asset-dual-icons">
+          <span class="crypto-icon usdt-icon">₮</span>
+          <span class="crypto-icon btc-icon">₿</span>
+        </div>
+        <span class="asset-label" id="current-asset-name">BTC/USDT</span>
+        <svg class="chevron-sm" width="12" height="12" viewBox="0 0 12 12"><path d="M3 5L6 8L9 5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>
+      </div>
+      <div class="live-badge-row">
+        <div class="live-dot-sm"></div>
+        <span>LIVE</span>
+      </div>
+    </div>
+
+    <!-- Timer + Amount row -->
+    <div class="timer-amount-row bet-section">
+      <div class="timer-select">
+        <span class="field-label">Timer</span>
+        <div class="select-box">
+          <select id="timer-select-dropdown">
+            <option value="5">5 Seconds</option>
+            <option value="10">10 Seconds</option>
+            <option value="15" selected>15 Seconds</option>
+            <option value="30">30 Seconds</option>
+            <option value="60">60 Seconds</option>
+          </select>
+        </div>
+      </div>
+      <div class="amount-control">
+        <span class="field-label">Amount</span>
+        <div class="amount-stepper">
+          <button class="stepper-btn minus" id="amount-minus" aria-label="Decrease amount">−</button>
+          <input type="number" id="bet-amount" value="50" min="5" max="10000" step="5">
+          <button class="stepper-btn plus" id="amount-plus" aria-label="Increase amount">+</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Live Bet Pool Sentiment Bar (Lowest bet pool wins algo) -->
+    <div class="pool-sentiment-bar" id="pool-sentiment-bar" title="Live Pool Sentiment — Lowest Bet Side Wins">
+      <div class="pool-stat-col up">
+        <span class="pool-label">BUY POOL</span>
+        <span class="pool-val" id="up-pool-display">$0</span>
+      </div>
+      <div class="pool-center-info">
+        <div class="pool-progress-track">
+          <div class="pool-progress-fill" id="pool-progress-fill" style="width: 50%;"></div>
+        </div>
+        <span class="pool-algo-hint" id="pool-algo-hint">Least Bet Wins</span>
+      </div>
+      <div class="pool-stat-col down">
+        <span class="pool-label">SELL POOL</span>
+        <span class="pool-val" id="down-pool-display">$0</span>
+      </div>
+    </div>
+
+    <!-- BUY / SELL buttons -->
+    <div class="action-buttons bet-section">
+      <button class="action-btn sell" id="btn-down">
+        <span class="action-label">SELL</span>
+        <span class="action-sub">On Market Price</span>
+      </button>
+      <button class="action-btn buy" id="btn-up">
+        <span class="action-label">BUY</span>
+        <span class="action-sub">On Market Price</span>
+      </button>
+    </div>
+  </section>
+
+  <!-- ===== Bottom Navigation ===== -->
+  <nav id="bottom-nav">
+    <button class="nav-tab" id="tab-home">
+      <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M3 9.5L12 3l9 6.5V20a1 1 0 01-1 1H4a1 1 0 01-1-1V9.5z"/><path d="M9 21V12h6v9"/></svg>
+      <span>Home</span>
+    </button>
+    <button class="nav-tab" id="tab-market">
+      <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M3 3v18h18"/><path d="M7 14l4-4 4 4 5-5"/></svg>
+      <span>Market</span>
+    </button>
+    <button class="nav-tab active" id="tab-trade">
+      <div class="trade-icon-circle">
+        <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2">
+          <line x1="18" y1="20" x2="18" y2="10"></line>
+          <line x1="12" y1="20" x2="12" y2="4"></line>
+          <line x1="6" y1="20" x2="6" y2="14"></line>
+        </svg>
+      </div>
+      <span>Trade</span>
+    </button>
+    <button class="nav-tab" id="tab-services">
+      <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8">
+        <rect x="2" y="7" width="20" height="14" rx="2" ry="2"></rect>
+        <path d="M16 21V5a2 2 0 0 0-2-2h-4a2 2 0 0 0-2 2v16"></path>
+      </svg>
+      <span>Services</span>
+    </button>
+    <button class="nav-tab" id="tab-wallet">
+      <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="2" y="5" width="20" height="16" rx="3"/><path d="M2 10h20"/><circle cx="17" cy="15" r="1.5" fill="currentColor"/></svg>
+      <span>Wallet</span>
+    </button>
+  </nav>
+
+  <!-- ===== Drawer: Trade History & Records ===== -->
+  <div class="drawer-backdrop" id="history-drawer">
+    <div class="drawer-sheet">
+      <div class="drawer-header">
+        <span class="drawer-title">Trade Records</span>
+        <button class="drawer-close-btn" id="close-history-drawer">&times;</button>
+      </div>
+      <div class="drawer-body">
+        <div class="stats-summary-bar">
+          <div class="stat-box">
+            <span class="stat-lbl">Total Trades</span>
+            <span class="stat-num" id="drawer-total-trades">0</span>
+          </div>
+          <div class="stat-box">
+            <span class="stat-lbl">Win Rate</span>
+            <span class="stat-num win-rate" id="drawer-win-rate">0%</span>
+          </div>
+          <div class="stat-box">
+            <span class="stat-lbl">Net Profit</span>
+            <span class="stat-num" id="drawer-net-profit">$0.00</span>
+          </div>
+        </div>
+        <div class="history-list-container" id="history-list"></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ===== Drawer: Chart Settings & Indicators ===== -->
+  <div class="drawer-backdrop" id="tools-drawer">
+    <div class="drawer-sheet">
+      <div class="drawer-header">
+        <span class="drawer-title">Chart & Indicators</span>
+        <button class="drawer-close-btn" id="close-tools-drawer">&times;</button>
+      </div>
+      <div class="drawer-body">
+        <div class="tools-section">
+          <label class="tools-label">Chart Type</label>
+          <div class="chart-type-toggle">
+            <button class="toggle-btn active" id="btn-candle">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="7" y="5" width="10" height="14" rx="1"/><line x1="12" y1="2" x2="12" y2="5"/><line x1="12" y1="19" x2="12" y2="22"/></svg>
+              Candles
+            </button>
+            <button class="toggle-btn" id="btn-line">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg>
+              Line Area
+            </button>
+          </div>
+        </div>
+        <div class="tools-section">
+          <label class="tools-label">Indicators</label>
+          <div class="indicator-row">
+            <span>Moving Average (MA 7)</span>
+            <input type="checkbox" id="toggle-ma" checked>
+          </div>
+          <div class="indicator-row">
+            <span>Bollinger Bands</span>
+            <input type="checkbox" id="toggle-bb">
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ===== Drawer: Asset Selector ===== -->
+  <div class="drawer-backdrop" id="asset-drawer">
+    <div class="drawer-sheet">
+      <div class="drawer-header">
+        <span class="drawer-title">Select Market</span>
+        <button class="drawer-close-btn" id="close-asset-drawer">&times;</button>
+      </div>
+      <div class="drawer-body asset-list" id="asset-list">
+        <div class="asset-item active" data-symbol="BTC/USDT" data-price="71420.00">
+          <div class="asset-item-left">
+            <span class="crypto-icon btc-icon">₿</span>
+            <div class="asset-name-group">
+              <span class="asset-name">BTC/USDT</span>
+              <span class="asset-network">Bitcoin OTC</span>
+            </div>
+          </div>
+          <div class="asset-item-right">
+            <span class="asset-payout">92%</span>
+            <span class="asset-badge-live">LIVE</span>
+          </div>
+        </div>
+        <div class="asset-item" data-symbol="ETH/USDT" data-price="3845.50">
+          <div class="asset-item-left">
+            <span class="crypto-icon eth-icon">Ξ</span>
+            <div class="asset-name-group">
+              <span class="asset-name">ETH/USDT</span>
+              <span class="asset-network">Ethereum OTC</span>
+            </div>
+          </div>
+          <div class="asset-item-right">
+            <span class="asset-payout">90%</span>
+            <span class="asset-badge-live">LIVE</span>
+          </div>
+        </div>
+        <div class="asset-item" data-symbol="SOL/USDT" data-price="182.20">
+          <div class="asset-item-left">
+            <span class="crypto-icon sol-icon">◎</span>
+            <div class="asset-name-group">
+              <span class="asset-name">SOL/USDT</span>
+              <span class="asset-network">Solana OTC</span>
+            </div>
+          </div>
+          <div class="asset-item-right">
+            <span class="asset-payout">88%</span>
+            <span class="asset-badge-live">LIVE</span>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ===== Modal: Deposit & Wallet ===== -->
+  <div class="drawer-backdrop" id="deposit-modal">
+    <div class="drawer-sheet">
+      <div class="drawer-header">
+        <span class="drawer-title">Deposit / Wallet</span>
+        <button class="drawer-close-btn" id="close-deposit-modal">&times;</button>
+      </div>
+      <div class="drawer-body">
+        <div class="wallet-balance-card">
+          <span class="wallet-label">Current Available Balance</span>
+          <span class="wallet-val" id="modal-wallet-balance">$9,379.63</span>
+        </div>
+        <label class="tools-label">Quick Recharge Amount</label>
+        <div class="quick-amounts-grid">
+          <button class="quick-deposit-btn" data-amt="500">+$500</button>
+          <button class="quick-deposit-btn" data-amt="1000">+$1,000</button>
+          <button class="quick-deposit-btn" data-amt="2500">+$2,500</button>
+          <button class="quick-deposit-btn" data-amt="5000">+$5,000</button>
+        </div>
+        <button class="action-btn buy deposit-submit-btn" id="btn-recharge-confirm">Instant Deposit</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ===== Hidden elements for JS compatibility ===== -->
+  <div style="display:none">
+    <span id="nav-price"></span>
+    <span id="nav-change"></span>
+    <span id="nav-volume"></span>
+    <span id="nav-spread"></span>
+    <span id="round-number"></span>
+    <span id="timer-value"></span>
+    <svg><circle id="timer-progress" cx="60" cy="60" r="52"/></svg>
+    <div id="round-phase"><span class="phase-dot betting"></span><span>Betting Open</span></div>
+    <span id="potential-profit"></span>
+    <span id="up-pool-amount"></span>
+    <span id="up-pool-count"></span>
+    <span id="down-pool-amount"></span>
+    <span id="down-pool-count"></span>
+    <div id="position-section">
+      <span id="position-direction"></span>
+      <span id="pos-entry"></span>
+      <span id="pos-amount"></span>
+      <span id="pos-pnl"></span>
+    </div>
+    <button id="clear-history"></button>
+    <div class="volume-bar" id="volume-bar"><canvas id="volume-chart"></canvas></div>
+  </div>
+
+  <!-- ===== Result Overlay ===== -->
+  <div class="result-overlay" id="result-overlay">
+    <div class="result-card" id="result-card">
+      <div class="result-icon" id="result-icon"></div>
+      <div class="result-title" id="result-title">Round Complete</div>
+      <div class="result-amount" id="result-amount"></div>
+      <div class="result-details" id="result-details"></div>
+      <button class="result-close" id="result-close">Continue Trading</button>
+    </div>
+  </div>
+
+  <!-- ===== Toast Container ===== -->
+  <div class="toast-container" id="toast-container"></div>
+
+  <script src="app.js"></script>
+  <script>
+    // Amount stepper buttons
+    document.getElementById('amount-minus').addEventListener('click', function() {
+      const input = document.getElementById('bet-amount');
+      const current = parseInt(input.value) || 50;
+      const step = current <= 50 ? 5 : (current <= 200 ? 10 : 50);
+      input.value = Math.max(5, current - step);
+      input.dispatchEvent(new Event('input'));
+    });
+    document.getElementById('amount-plus').addEventListener('click', function() {
+      const input = document.getElementById('bet-amount');
+      const current = parseInt(input.value) || 50;
+      const step = current < 50 ? 5 : (current < 200 ? 10 : 50);
+      input.value = Math.min(10000, current + step);
+      input.dispatchEvent(new Event('input'));
+    });
+  </script>
+</body>
+</html>
