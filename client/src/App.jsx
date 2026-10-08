@@ -16,10 +16,27 @@ import SupportModal from './components/Drawers/SupportModal.jsx';
 import { socket, userId } from './services/socket.js';
 import { sounds } from './services/sound.js';
 
+function generateInitialCandles(basePrice = 96420, count = 35) {
+  const list = [];
+  let price = basePrice - 140;
+  const now = Date.now();
+  for (let i = count; i >= 1; i--) {
+    const time = now - i * 5000;
+    const variance = (Math.random() - 0.48) * 35;
+    const open = price;
+    const close = price + variance;
+    const high = Math.max(open, close) + Math.random() * 18;
+    const low = Math.min(open, close) - Math.random() * 18;
+    list.push({ time, open, high, low, close });
+    price = close;
+  }
+  return list;
+}
+
 export default function App() {
   // Connection & User State
   const [isOnline, setIsOnline] = useState(false);
-  const [user, setUser] = useState(null);
+  const [user, setUser] = useState({ userId: userId, username: 'Trader', demoBalance: 10000, balance: 0, role: 'user' });
   const [isDemo, setIsDemo] = useState(true);
   const [currency, setCurrency] = useState('INR'); // 'INR' or 'USD'
 
@@ -34,7 +51,7 @@ export default function App() {
 
   // Market & Engine State
   const [serverPrice, setServerPrice] = useState(96420.50);
-  const [rawCandles, setRawCandles] = useState([]);
+  const [rawCandles, setRawCandles] = useState(() => generateInitialCandles());
   const [rawCurrentCandle, setRawCurrentCandle] = useState(null);
   const [round, setRound] = useState(null);
   const [remainingSec, setRemainingSec] = useState(35);
@@ -267,6 +284,84 @@ export default function App() {
     }
   };
 
+  // Standalone / offline continuous ticker fallback
+  useEffect(() => {
+    if (isOnline) return;
+
+    const interval = setInterval(() => {
+      setServerPrice(prev => {
+        const delta = (Math.random() - 0.49) * 8;
+        const nextPrice = +(prev + delta).toFixed(2);
+        setRawCurrentCandle(curr => {
+          if (!curr) return { time: Date.now(), open: prev, high: Math.max(prev, nextPrice), low: Math.min(prev, nextPrice), close: nextPrice };
+          return {
+            ...curr,
+            high: Math.max(curr.high, nextPrice),
+            low: Math.min(curr.low, nextPrice),
+            close: nextPrice
+          };
+        });
+        return nextPrice;
+      });
+
+      setCandleRemainingSec(prev => {
+        if (prev <= 1) {
+          setRawCandles(list => {
+            const last = list[list.length - 1];
+            const closeP = last ? last.close : 96420;
+            const variance = (Math.random() - 0.48) * 20;
+            const nextClose = closeP + variance;
+            return [...list.slice(-50), {
+              time: Date.now(),
+              open: closeP,
+              high: Math.max(closeP, nextClose) + Math.random() * 10,
+              low: Math.min(closeP, nextClose) - Math.random() * 10,
+              close: nextClose
+            }];
+          });
+          return 5;
+        }
+        return prev - 1;
+      });
+
+      setRemainingSec(prev => {
+        if (prev <= 1) {
+          // Resolve standalone trades
+          setActiveTrades(trades => {
+            if (trades.length > 0) {
+              trades.forEach(t => {
+                const isWin = Math.random() > 0.45;
+                if (isWin) sounds.playWin();
+                else sounds.playLoss();
+                const payoutMult = 0.6;
+                const winProfit = Math.round(t.amount * (1 + payoutMult));
+                setTradeHistory(hist => [
+                  {
+                    asset: activeAsset,
+                    time: new Date().toLocaleTimeString().slice(0, 5),
+                    amount: t.amount,
+                    profit: isWin ? winProfit : 0,
+                    isWin,
+                    direction: t.direction
+                  },
+                  ...hist
+                ]);
+                if (isWin) {
+                  setUser(u => u ? { ...u, demoBalance: (u.demoBalance || 10000) + (winProfit / inrRate) } : u);
+                }
+              });
+            }
+            return [];
+          });
+          return 35;
+        }
+        return prev - 1;
+      });
+    }, 1000);
+
+    return () => clearInterval(interval);
+  }, [isOnline, activeAsset]);
+
   // Place Trade Action
   const handlePlaceTrade = (direction) => {
     const inrRate = 85.5;
@@ -278,12 +373,34 @@ export default function App() {
       return;
     }
 
-    const serverAmount = currency === 'INR' ? +(betAmount / inrRate).toFixed(2) : betAmount;
-    socket.emit('PLACE_TRADE', {
-      amount: serverAmount,
-      direction,
-      isDemo
-    });
+    if (socket.connected) {
+      const serverAmount = currency === 'INR' ? +(betAmount / inrRate).toFixed(2) : betAmount;
+      socket.emit('PLACE_TRADE', {
+        amount: serverAmount,
+        direction,
+        isDemo
+      });
+    } else {
+      // Standalone / offline trade placement
+      sounds.playBet();
+      const localTrade = {
+        tradeId: 't_' + Math.random().toString(36).slice(2, 7),
+        amount: betAmount,
+        direction,
+        entryPrice: displayCurrentPrice,
+        asset: activeAsset,
+        isDemo: true,
+        createdAt: Date.now()
+      };
+      setActiveTrades(prev => [...prev, localTrade]);
+      setUser(prev => {
+        const cur = prev?.demoBalance ?? 10000;
+        const sub = currency === 'INR' ? betAmount / inrRate : betAmount;
+        return { ...(prev || {}), demoBalance: Math.max(0, cur - sub) };
+      });
+      const sym = currency === 'INR' ? '₹' : '$';
+      showToast(`Trade Placed: ${direction} ${sym}${betAmount.toLocaleString()}`, 'success');
+    }
   };
 
   // Deposit Actions
