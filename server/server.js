@@ -35,6 +35,7 @@ const io = new Server(server, {
 
 // Start trading engine
 const engine = new TradingEngine(io);
+app.set('engine', engine);
 
 // Socket.io Connection Handler
 io.on('connection', async (socket) => {
@@ -80,7 +81,8 @@ io.on('connection', async (socket) => {
         userId,
         direction,
         amount: numAmount,
-        isDemo
+        isDemo,
+        userBalance: balance
       });
 
       if (!result.success) {

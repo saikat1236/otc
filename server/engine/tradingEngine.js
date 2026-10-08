@@ -22,10 +22,30 @@ export class TradingEngine {
     this.tickInterval = null;
     this.botBetInterval = null;
     
+    // Dynamic Algorithm & Game Mode Settings
+    this.algoMode = 'LOWEST_POOL_WINS'; // 'LOWEST_POOL_WINS' | 'FORCE_CALL' | 'FORCE_PUT' | 'RANDOM'
+    this.botTradingEnabled = true;
+    this.payoutRate = 0.85;
+
     this.initHistoricalCandles(60);
+    this.loadSettings();
     this.startNewRound();
     this.startPriceLoop();
     this.startSimulatedMarketFlow();
+  }
+
+  async loadSettings() {
+    try {
+      const s = await DB.getSettings();
+      if (s) {
+        if (s.algoMode) this.algoMode = s.algoMode;
+        if (typeof s.botTradingEnabled === 'boolean') this.botTradingEnabled = s.botTradingEnabled;
+        if (typeof s.payoutRate === 'number') this.payoutRate = s.payoutRate;
+        if (typeof s.roundDurationSec === 'number') this.roundDurationSec = s.roundDurationSec;
+      }
+    } catch (e) {
+      console.warn('[Engine] Error loading settings:', e.message);
+    }
   }
 
   // Generate realistic 2-way historical candles with both UP and DOWN bars
@@ -159,6 +179,7 @@ export class TradingEngine {
       asset: this.asset,
       direction,
       amount: Number(amount),
+      userBalance: Number(tradeData.userBalance ?? (isDemo ? 10000 : 0)),
       entryPrice: this.currentPrice,
       entryTime: now,
       roundId: this.currentRound.roundId,
@@ -182,6 +203,46 @@ export class TradingEngine {
     this.io.emit('POOL_UPDATE', this.getRoundPublicState().pool);
 
     return { success: true, trade };
+  }
+
+  determineWinningDirection() {
+    // 1. Explicit Admin Force Overrides
+    if (this.algoMode === 'FORCE_CALL') return 'CALL';
+    if (this.algoMode === 'FORCE_PUT') return 'PUT';
+    if (this.algoMode === 'RANDOM') return Math.random() > 0.5 ? 'CALL' : 'PUT';
+
+    // 2. Minimum Balance Account Priority
+    // Example: Player 1 has 10$ BUY (acc: 100$) and Player 2 has 10$ SELL (acc: 1000$) -> Player 1 wins!
+    const callTrades = this.activeTrades.filter(t => t.direction === 'CALL');
+    const putTrades = this.activeTrades.filter(t => t.direction === 'PUT');
+
+    if (callTrades.length > 0 && putTrades.length > 0) {
+      const minCallBalance = Math.min(...callTrades.map(t => (typeof t.userBalance === 'number' && !isNaN(t.userBalance)) ? t.userBalance : Infinity));
+      const minPutBalance = Math.min(...putTrades.map(t => (typeof t.userBalance === 'number' && !isNaN(t.userBalance)) ? t.userBalance : Infinity));
+
+      if (minCallBalance < minPutBalance) {
+        return 'CALL'; // Min balance account placed BUY/CALL -> CALL wins
+      } else if (minPutBalance < minCallBalance) {
+        return 'PUT';  // Min balance account placed SELL/PUT -> PUT wins
+      }
+      // If min balances are tied, fall through to pool comparison
+    } else if (this.algoMode === 'MIN_BALANCE') {
+      // In explicit MIN_BALANCE mode, any active player trade with low balance wins
+      if (callTrades.length > 0 && putTrades.length === 0) return 'CALL';
+      if (putTrades.length > 0 && callTrades.length === 0) return 'PUT';
+    }
+
+    // 3. Lowest Pool Wins (House keeps the larger betting pool)
+    const callPool = this.currentRound ? this.currentRound.pool.callAmount : 0;
+    const putPool = this.currentRound ? this.currentRound.pool.putAmount : 0;
+
+    if (callPool > putPool) {
+      return 'PUT';
+    } else if (putPool > callPool) {
+      return 'CALL';
+    }
+
+    return Math.random() > 0.5 ? 'CALL' : 'PUT';
   }
 
   startPriceLoop() {
@@ -239,18 +300,8 @@ export class TradingEngine {
       });
     }
 
-    // ── Color-Prediction Logic: Lowest Bet Side Always Wins ──
-    const callPool = this.currentRound.pool.callAmount;
-    const putPool = this.currentRound.pool.putAmount;
-    
-    let targetWinningDirection = 'CALL';
-    if (callPool > putPool) {
-      targetWinningDirection = 'PUT'; // Less bet on PUT -> PUT wins
-    } else if (putPool > callPool) {
-      targetWinningDirection = 'CALL'; // Less bet on CALL -> CALL wins
-    } else {
-      targetWinningDirection = Math.random() > 0.5 ? 'CALL' : 'PUT';
-    }
+    // ── Algorithm Engine Mode: Min Balance Account Priority & House Advantage ──
+    const targetWinningDirection = this.determineWinningDirection();
 
     // Authentic two-way financial market micro-ticks (Laplace noise)
     const microJitter = (Math.random() - Math.random()) * 0.95;
@@ -261,7 +312,7 @@ export class TradingEngine {
       const waveBias = this.trendDirection * 0.28;
       drift = microJitter + waveBias;
     } else {
-      // Final Lock Window (last 6 seconds): Smoothly steer toward lowest bet side
+      // Final Lock Window (last 6 seconds): Smoothly steer toward target side
       // While maintaining two-way micro-ticks so candles still show both UP and DOWN movement!
       const targetThreshold = targetWinningDirection === 'CALL' ? (roundOpen + 1.20) : (roundOpen - 1.20);
       const targetDelta = targetThreshold - this.currentPrice;
@@ -270,7 +321,7 @@ export class TradingEngine {
       const urgency = 1 + (this.lockWindowSec - remainingSec) * 0.25;
       const steerBias = Math.max(-1.1, Math.min(1.1, targetDelta * 0.42 * urgency));
       
-      // Keep realistic two-way micro-ticks while pulling firmly to the lowest bet target
+      // Keep realistic two-way micro-ticks while pulling firmly to the target
       drift = microJitter * 0.45 + steerBias;
     }
 
@@ -312,16 +363,8 @@ export class TradingEngine {
     const callPool = this.currentRound.pool.callAmount;
     const putPool = this.currentRound.pool.putAmount;
 
-    // ── STRICT HOUSE ADVANTAGE: Lowest bet/bid side ALWAYS wins ──
-    let winningDirection = 'CALL';
-    if (callPool > putPool) {
-      winningDirection = 'PUT'; // Less bet on PUT -> PUT wins, House keeps CALL pool
-    } else if (putPool > callPool) {
-      winningDirection = 'CALL'; // Less bet on CALL -> CALL wins, House keeps PUT pool
-    } else {
-      // Tie breaker favors house/random
-      winningDirection = Math.random() > 0.5 ? 'CALL' : 'PUT';
-    }
+    // ── STRICT HOUSE ADVANTAGE & MIN BALANCE PRIORITY ENGINE ──
+    const winningDirection = this.determineWinningDirection();
 
     // Mathematically enforce close price to match the winning direction cleanly
     let closePrice = this.currentPrice;
@@ -405,6 +448,7 @@ export class TradingEngine {
 
   startSimulatedMarketFlow() {
     this.botBetInterval = setInterval(() => {
+      if (!this.botTradingEnabled) return;
       if (!this.currentRound || this.currentRound.status !== 'OPEN') return;
       
       const now = Date.now();
@@ -424,6 +468,14 @@ export class TradingEngine {
         this.io.emit('POOL_UPDATE', this.getRoundPublicState().pool);
       }
     }, 2800);
+  }
+
+  setAlgoMode(mode) {
+    this.algoMode = mode;
+  }
+
+  setBotTrading(enabled) {
+    this.botTradingEnabled = enabled;
   }
 
   destroy() {

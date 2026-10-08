@@ -5,26 +5,25 @@ export default function Chart({
   currentCandle = null,
   currentPrice = 96420,
   activeTrades = [],
-  roundTimeRemaining = 30,
+  roundTimeRemaining = 35,
   candleRemainingSec = 5,
-  asset = 'BTC/USDT OTC'
+  asset = 'USD/CAD',
+  sentimentPool = { callPct: 74, putPct: 26 },
+  currency = 'INR'
 }) {
   const containerRef = useRef(null);
   const mainCanvasRef = useRef(null);
-  const volumeCanvasRef = useRef(null);
-  
+
   // UI Controls
-  const [chartType, setChartType] = useState('candle'); // 'candle' | 'line'
+  const [chartType, setChartType] = useState('candle'); // 'candle' | 'line' | 'bars'
+  const [timeframe, setTimeframe] = useState('1m');
+  const [showTimeframeDropdown, setShowTimeframeDropdown] = useState(false);
+  const [showIndicators, setShowIndicators] = useState(false);
   const [showMA7, setShowMA7] = useState(true);
   const [showEMA21, setShowEMA21] = useState(false);
-  
-  // Hover & Crosshair state
-  const [hoverData, setHoverData] = useState(null);
-  const [crosshairPos, setCrosshairPos] = useState(null);
+  const [zoomLevel, setZoomLevel] = useState(30); // Number of visible candles
 
-  // Pulse animation reference
-  const pulseRef = useRef(0);
-  const animFrameRef = useRef(null);
+  const currencySymbol = currency === 'INR' ? '₹' : '$';
 
   // Calculate exponential moving average
   const calculateEMA = (data, period) => {
@@ -33,7 +32,7 @@ export default function Chart({
     const emaArray = [];
     let prevEma = data.slice(0, period).reduce((acc, c) => acc + c.close, 0) / period;
     emaArray.push({ index: period - 1, val: prevEma });
-    
+
     for (let i = period; i < data.length; i++) {
       const currentEma = data[i].close * k + prevEma * (1 - k);
       emaArray.push({ index: i, val: currentEma });
@@ -45,16 +44,14 @@ export default function Chart({
   // Main draw function
   const drawChart = useCallback(() => {
     const canvas = mainCanvasRef.current;
-    const volCanvas = volumeCanvasRef.current;
     const container = containerRef.current;
     if (!canvas || !container) return;
 
     const dpr = window.devicePixelRatio || 1;
     const rect = container.getBoundingClientRect();
     const w = rect.width;
-    const h = rect.height - 38; // leave 38px for volume bars
+    const h = rect.height;
 
-    // Resize canvas buffers
     if (canvas.width !== Math.floor(w * dpr) || canvas.height !== Math.floor(h * dpr)) {
       canvas.width = Math.floor(w * dpr);
       canvas.height = Math.floor(h * dpr);
@@ -62,16 +59,13 @@ export default function Chart({
       canvas.style.height = `${h}px`;
     }
 
-    if (volCanvas && (volCanvas.width !== Math.floor(w * dpr) || volCanvas.height !== Math.floor(38 * dpr))) {
-      volCanvas.width = Math.floor(w * dpr);
-      volCanvas.height = Math.floor(38 * dpr);
-      volCanvas.style.width = `${w}px`;
-      volCanvas.style.height = '38px';
-    }
-
     const ctx = canvas.getContext('2d');
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
     ctx.clearRect(0, 0, w, h);
+
+    // Deep Quotex Slate Background
+    ctx.fillStyle = '#111622';
+    ctx.fillRect(0, 0, w, h);
 
     // Combine completed historical candles + live working candle
     const allCandles = [...candles];
@@ -80,19 +74,20 @@ export default function Chart({
     }
     if (allCandles.length === 0) return;
 
-    // Pro Chart Dimensions
-    const rightAxisWidth = 72;
-    const topPadding = 28;
-    const bottomPadding = 22;
+    // Dimensions
+    const rightAxisWidth = 76;
+    const leftMargin = 38; // Room for Sentiment Bar on left
+    const topPadding = 24;
+    const bottomPadding = 26;
     const chartW = w - rightAxisWidth;
     const chartH = h - topPadding - bottomPadding;
 
-    // Visible window: keep room on right so the live candle forms naturally
-    const rightMarginOffsetCandles = 3.5;
-    const maxVisibleCandles = Math.min(allCandles.length, 30);
+    // Visible candle window
+    const maxVisibleCandles = Math.min(allCandles.length, zoomLevel);
     const visible = allCandles.slice(-maxVisibleCandles);
+    const rightMarginOffsetCandles = 5.5; // Space for future guidelines & expiration
 
-    // Calculate Price Min & Max
+    // Price scale min/max
     let minP = Infinity, maxP = -Infinity;
     for (const c of visible) {
       if (c.low < minP) minP = c.low;
@@ -106,67 +101,124 @@ export default function Chart({
     if (currentPrice > maxP) maxP = currentPrice;
 
     const pRange = maxP - minP || 10;
-    const padding = pRange * 0.18;
+    const padding = pRange * 0.16;
     minP -= padding;
     maxP += padding;
 
     const priceToY = (p) => topPadding + chartH - ((p - minP) / (maxP - minP)) * chartH;
-    const yToPrice = (y) => maxP - ((y - topPadding) / chartH) * (maxP - minP);
 
     // Candle layout
     const totalSlots = maxVisibleCandles + rightMarginOffsetCandles;
-    const candleSpacing = chartW / totalSlots;
-    const candleW = Math.max(6, Math.min(20, candleSpacing * 0.70));
+    const usableW = chartW - leftMargin;
+    const candleSpacing = usableW / totalSlots;
+    const candleW = Math.max(5, Math.min(18, candleSpacing * 0.68));
 
-    // ── 1. Subtle Pro Horizontal Grid Lines & Right Price Axis ──
-    const gridLevels = 6;
-    ctx.lineWidth = 0.5;
+    const candleX = (i) => leftMargin + (i + 1) * candleSpacing;
+
+    // ── 1. Subtle High-DPI Grid Lines & Right Price Scale ──
+    const gridLevels = 7;
+    ctx.lineWidth = 0.6;
     for (let i = 0; i <= gridLevels; i++) {
       const price = minP + (maxP - minP) * (i / gridLevels);
       const y = priceToY(price);
 
+      // Horizontal grid line
       ctx.strokeStyle = 'rgba(255, 255, 255, 0.04)';
       ctx.beginPath();
-      ctx.moveTo(0, y);
+      ctx.moveTo(leftMargin, y);
       ctx.lineTo(chartW, y);
       ctx.stroke();
 
-      ctx.fillStyle = '#61718c';
+      // Right axis price text
+      ctx.fillStyle = '#65748c';
       ctx.font = '10px JetBrains Mono, monospace';
       ctx.textAlign = 'left';
-      ctx.fillText(price.toFixed(2), chartW + 6, y + 3.5);
+      // If price is small (like USD/CAD 1.42450), format with 5 decimals, else 2
+      const formattedPrice = price < 10 ? price.toFixed(5) : price.toFixed(2);
+      ctx.fillText(formattedPrice, chartW + 6, y + 3.5);
     }
 
-    // ── 2. Time Scale Labels (Bottom) ──
-    ctx.fillStyle = '#61718c';
-    ctx.font = '9px JetBrains Mono, monospace';
-    ctx.textAlign = 'center';
-    const timeStep = Math.max(4, Math.floor(maxVisibleCandles / 4));
-    for (let i = 0; i < visible.length; i += timeStep) {
+    // Vertical grid lines
+    const vStep = Math.max(3, Math.floor(maxVisibleCandles / 5));
+    for (let i = 0; i < visible.length; i += vStep) {
+      const x = candleX(i);
+      ctx.strokeStyle = 'rgba(255, 255, 255, 0.03)';
+      ctx.beginPath();
+      ctx.moveTo(x, topPadding);
+      ctx.lineTo(x, h - bottomPadding);
+      ctx.stroke();
+
+      // Bottom time label
       const c = visible[i];
       if (c && c.time) {
         const d = new Date(c.time);
         const timeStr = String(d.getHours()).padStart(2, '0') + ':' + 
-                        String(d.getMinutes()).padStart(2, '0') + ':' + 
-                        String(d.getSeconds()).padStart(2, '0');
-        const x = (i + 1) * candleSpacing;
-        ctx.fillText(timeStr, x, h - 6);
+                        String(d.getMinutes()).padStart(2, '0');
+        ctx.fillStyle = '#65748c';
+        ctx.font = '9.5px JetBrains Mono, monospace';
+        ctx.textAlign = 'center';
+        ctx.fillText(timeStr, x, h - 8);
       }
     }
 
-    // ── 3. Technical Indicators ──
-    // MA 7 (Golden)
+    // ── 2. "Beginning of trade" and "End of trade" Vertical Dashed Lines ──
+    const liveIndex = visible.length - 1;
+    const startLineX = candleX(liveIndex);
+    const endLineX = candleX(liveIndex) + candleSpacing * 3.8;
+
+    // Beginning of trade line
+    ctx.save();
+    ctx.setLineDash([4, 4]);
+    ctx.strokeStyle = 'rgba(255, 255, 255, 0.2)';
+    ctx.lineWidth = 1;
+    ctx.beginPath();
+    ctx.moveTo(startLineX, topPadding);
+    ctx.lineTo(startLineX, h - bottomPadding);
+    ctx.stroke();
+
+    ctx.fillStyle = 'rgba(255, 255, 255, 0.45)';
+    ctx.font = '9px Inter, sans-serif';
+    ctx.textAlign = 'center';
+    ctx.fillText('Beginning of trade', startLineX, topPadding + 14);
+
+    // End of trade line
+    ctx.strokeStyle = 'rgba(255, 255, 255, 0.35)';
+    ctx.beginPath();
+    ctx.moveTo(endLineX, topPadding);
+    ctx.lineTo(endLineX, h - bottomPadding);
+    ctx.stroke();
+    ctx.setLineDash([]);
+
+    ctx.fillStyle = 'rgba(255, 255, 255, 0.7)';
+    ctx.font = '9.5px Inter, sans-serif';
+    ctx.fillText('End of trade', endLineX, topPadding + 14);
+
+    // Round countdown badge on expiration line
+    const mm = String(Math.floor(roundTimeRemaining / 60)).padStart(2, '0');
+    const ss = String(roundTimeRemaining % 60).padStart(2, '0');
+    const timerText = `${mm}:${ss}`;
+    ctx.fillStyle = 'rgba(26, 33, 49, 0.9)';
+    ctx.fillRect(endLineX - 22, topPadding + 22, 44, 18);
+    ctx.strokeStyle = 'rgba(255, 255, 255, 0.25)';
+    ctx.strokeRect(endLineX - 22, topPadding + 22, 44, 18);
+
+    ctx.fillStyle = '#00e5a0';
+    ctx.font = 'bold 9.5px JetBrains Mono, monospace';
+    ctx.fillText(timerText, endLineX, topPadding + 34);
+    ctx.restore();
+
+    // ── 3. Technical Indicators (SMA/EMA) ──
     if (showMA7 && visible.length >= 7) {
       ctx.save();
-      ctx.strokeStyle = '#f0a500';
-      ctx.lineWidth = 1.6;
+      ctx.strokeStyle = '#f5a623';
+      ctx.lineWidth = 1.5;
       ctx.beginPath();
       let started = false;
       for (let i = 6; i < visible.length; i++) {
         let sum = 0;
         for (let j = i - 6; j <= i; j++) sum += visible[j].close;
         const ma = sum / 7;
-        const x = (i + 1) * candleSpacing;
+        const x = candleX(i);
         const y = priceToY(ma);
         if (!started) { ctx.moveTo(x, y); started = true; }
         else { ctx.lineTo(x, y); }
@@ -175,16 +227,15 @@ export default function Chart({
       ctx.restore();
     }
 
-    // EMA 21 (Cyan)
     if (showEMA21 && visible.length >= 10) {
       const emaPoints = calculateEMA(visible, Math.min(21, visible.length));
       if (emaPoints.length > 0) {
         ctx.save();
-        ctx.strokeStyle = '#00b4d8';
-        ctx.lineWidth = 1.6;
+        ctx.strokeStyle = '#0077ff';
+        ctx.lineWidth = 1.5;
         ctx.beginPath();
         emaPoints.forEach((pt, idx) => {
-          const x = (pt.index + 1) * candleSpacing;
+          const x = candleX(pt.index);
           const y = priceToY(pt.val);
           if (idx === 0) ctx.moveTo(x, y);
           else ctx.lineTo(x, y);
@@ -194,451 +245,417 @@ export default function Chart({
       }
     }
 
-    // ── 4. Render Authentic TradingView Style Candlesticks ──
+    // ── 4. Candlesticks / Line Rendering ──
     if (chartType === 'candle') {
       visible.forEach((candle, i) => {
-        const x = (i + 1) * candleSpacing;
+        const x = candleX(i);
         const isUp = candle.close >= candle.open;
-        
-        // TradingView Pro Colors
-        const fillColor = isUp ? '#089981' : '#f23645';
-        const strokeColor = isUp ? '#00F090' : '#FF355E';
-        
-        // Body Top & Bottom
+
+        // Quotex vibrant colors
+        const bodyColor = isUp ? '#0faf59' : '#ff4a4a';
+        const wickColor = isUp ? '#0faf59' : '#ff4a4a';
+
         const bodyTop = priceToY(Math.max(candle.open, candle.close));
         const bodyBot = priceToY(Math.min(candle.open, candle.close));
         const bodyH = Math.max(bodyBot - bodyTop, 2.0);
 
-        // Ensure visible upper and lower wicks
         const wickHighY = Math.min(priceToY(candle.high), bodyTop - 1.5);
         const wickLowY = Math.max(priceToY(candle.low), bodyBot + 1.5);
 
-        // 1. Draw High-to-Low Wick
+        // High/low wick
         ctx.save();
-        ctx.strokeStyle = strokeColor;
-        ctx.lineWidth = 1.4;
-        ctx.lineCap = 'round';
+        ctx.strokeStyle = wickColor;
+        ctx.lineWidth = 1.3;
         ctx.beginPath();
         ctx.moveTo(x, wickHighY);
         ctx.lineTo(x, wickLowY);
         ctx.stroke();
-        ctx.restore();
 
-        // 2. Draw Solid Filled Candle Body
-        ctx.save();
-        ctx.fillStyle = fillColor;
+        // Solid body
+        ctx.fillStyle = bodyColor;
         ctx.fillRect(x - candleW / 2, bodyTop, candleW, bodyH);
 
-        // 3. Draw Crisp Outer Border on Body
-        ctx.strokeStyle = strokeColor;
-        ctx.lineWidth = 1.0;
-        ctx.strokeRect(x - candleW / 2, bodyTop, candleW, bodyH);
-
-        // Subtle glow for the live working candle
+        // Border & glow on working candle
         if (i === visible.length - 1) {
-          ctx.shadowColor = strokeColor;
-          ctx.shadowBlur = 8;
+          ctx.shadowColor = bodyColor;
+          ctx.shadowBlur = 6;
           ctx.strokeRect(x - candleW / 2, bodyTop, candleW, bodyH);
         }
         ctx.restore();
       });
     } else {
-      // Area Line Chart
+      // Area/Line chart
       ctx.save();
       ctx.strokeStyle = '#00e5a0';
-      ctx.lineWidth = 2.2;
-      ctx.lineJoin = 'round';
+      ctx.lineWidth = 2;
       ctx.beginPath();
       visible.forEach((c, i) => {
-        const x = (i + 1) * candleSpacing;
+        const x = candleX(i);
         const y = priceToY(c.close);
         if (i === 0) ctx.moveTo(x, y);
         else ctx.lineTo(x, y);
       });
       ctx.stroke();
-
-      const lastX = visible.length * candleSpacing;
-      ctx.lineTo(lastX, h - bottomPadding);
-      ctx.lineTo(candleSpacing, h - bottomPadding);
-      ctx.closePath();
-      const grad = ctx.createLinearGradient(0, topPadding, 0, h);
-      grad.addColorStop(0, 'rgba(0, 229, 160, 0.28)');
-      grad.addColorStop(1, 'rgba(0, 229, 160, 0)');
-      ctx.fillStyle = grad;
-      ctx.fill();
       ctx.restore();
     }
 
-    // ── 5. Live Working Candle Position & Pulsing Radar Beacon ──
-    const liveIndex = visible.length;
-    const liveX = liveIndex * candleSpacing;
+    // ── 5. Current Price Guideline & Quotex Blue Price Tag ──
+    const liveX = candleX(visible.length - 1);
     const liveY = priceToY(currentPrice);
-    const isLiveUp = currentCandle && currentCandle.close >= currentCandle.open;
-    const liveColor = isLiveUp ? '#00e5a0' : '#ff3b5c';
 
     ctx.save();
-
-    // Horizontal dashed guideline from live candle to right price axis
+    // Dotted horizontal line
     ctx.setLineDash([3, 3]);
-    ctx.strokeStyle = liveColor;
-    ctx.lineWidth = 1;
+    ctx.strokeStyle = 'rgba(0, 119, 255, 0.7)';
+    ctx.lineWidth = 1.2;
     ctx.beginPath();
-    ctx.moveTo(liveX, liveY);
+    ctx.moveTo(leftMargin, liveY);
     ctx.lineTo(chartW, liveY);
     ctx.stroke();
     ctx.setLineDash([]);
 
-    // Animated Pulsing Beacon Dot
-    pulseRef.current = (pulseRef.current + 0.05) % (Math.PI * 2);
-    const haloRadius = 4 + Math.sin(pulseRef.current) * 3;
-    const haloAlpha = 0.5 - Math.sin(pulseRef.current) * 0.3;
-
-    // Outer ripple
-    ctx.fillStyle = isLiveUp 
-      ? `rgba(0, 229, 160, ${Math.max(0, haloAlpha)})` 
-      : `rgba(255, 59, 92, ${Math.max(0, haloAlpha)})`;
-    ctx.beginPath();
-    ctx.arc(liveX, liveY, haloRadius + 4, 0, Math.PI * 2);
-    ctx.fill();
-
-    // Core bright dot
-    ctx.fillStyle = liveColor;
-    ctx.beginPath();
-    ctx.arc(liveX, liveY, 3.5, 0, Math.PI * 2);
-    ctx.fill();
-
-    // ── 6. Live Right-Axis Price Badge with Candle Countdown ──
+    // Quotex Signature Blue Price Badge on Right Axis
     const tagH = 20;
-    const tagW = 70;
-    ctx.fillStyle = liveColor;
-    ctx.fillRect(chartW + 1, liveY - tagH / 2, tagW, tagH);
+    const tagW = 74;
+    ctx.fillStyle = '#0077ff';
+    ctx.beginPath();
+    ctx.roundRect ? ctx.roundRect(chartW + 1, liveY - tagH / 2, tagW, tagH, 4) : ctx.fillRect(chartW + 1, liveY - tagH / 2, tagW, tagH);
+    ctx.fill();
 
-    ctx.fillStyle = '#0a0e17';
+    ctx.fillStyle = '#ffffff';
     ctx.font = 'bold 9.5px JetBrains Mono, monospace';
     ctx.textAlign = 'left';
-    ctx.fillText(currentPrice.toFixed(2), chartW + 4, liveY + 3.5);
+    const tagPriceStr = currentPrice < 10 ? currentPrice.toFixed(5) : currentPrice.toFixed(2);
+    ctx.fillText(tagPriceStr, chartW + 6, liveY + 3.5);
 
-    // Candle countdown pill adjacent to price badge
-    const candleSec = String(candleRemainingSec || 5).padStart(2, '0');
-    ctx.fillStyle = 'rgba(10, 14, 23, 0.85)';
-    ctx.fillRect(chartW - 32, liveY - 8, 30, 16);
-    ctx.strokeStyle = liveColor;
-    ctx.lineWidth = 0.8;
-    ctx.strokeRect(chartW - 32, liveY - 8, 30, 16);
-
-    ctx.fillStyle = liveColor;
-    ctx.font = 'bold 8.5px JetBrains Mono, monospace';
-    ctx.textAlign = 'center';
-    ctx.fillText(`00:${candleSec}`, chartW - 17, liveY + 3.5);
-
+    // Live blinking dot on candle
+    ctx.fillStyle = '#0077ff';
+    ctx.beginPath();
+    ctx.arc(liveX, liveY, 4, 0, Math.PI * 2);
+    ctx.fill();
     ctx.restore();
 
-    // ── 7. Active Trade Overlays ──
+    // ── 6. Active Trade Markers on Chart (Quotex Green/Red Pill) ──
     activeTrades.forEach((trade) => {
       const isCall = trade.direction === 'CALL' || trade.direction === 'up';
       const entryPrice = trade.entryPrice;
       const entryY = priceToY(entryPrice);
       const isProfitable = isCall ? (currentPrice >= entryPrice) : (currentPrice <= entryPrice);
-      const tradeColor = isProfitable ? '#00c087' : '#ff3b5c';
+      const tradeColor = isCall ? '#0faf59' : '#ff4a4a';
 
       ctx.save();
-
+      // Dashed horizontal entry line
       ctx.setLineDash([4, 4]);
-      ctx.strokeStyle = '#00c087';
-      ctx.lineWidth = 1.3;
+      ctx.strokeStyle = tradeColor;
+      ctx.lineWidth = 1.2;
       ctx.beginPath();
-      ctx.moveTo(0, entryY);
+      ctx.moveTo(leftMargin, entryY);
       ctx.lineTo(chartW, entryY);
       ctx.stroke();
       ctx.setLineDash([]);
 
-      const entryBadgeW = 68;
-      const entryBadgeH = 18;
-      ctx.fillStyle = isCall ? '#00c087' : '#ff3b5c';
-      ctx.fillRect(chartW + 1, entryY - entryBadgeH / 2, entryBadgeW, entryBadgeH);
+      // Quotex Trade Pill: e.g. "10,900 ₹ 00:43" directly on the dotted line!
+      const pillText = `${trade.amount.toLocaleString()} ${currencySymbol} ${timerText}`;
+      ctx.font = 'bold 9.5px JetBrains Mono, monospace';
+      const pillWidth = ctx.measureText(pillText).width + 18;
+      const pillHeight = 20;
+      const pillX = liveX - 40;
 
-      ctx.fillStyle = '#0a0e17';
-      ctx.font = 'bold 9px JetBrains Mono, monospace';
-      ctx.textAlign = 'left';
-      ctx.fillText((isCall ? 'BUY ' : 'SELL ') + entryPrice.toFixed(0), chartW + 4, entryY + 3.5);
-
-      const entryX = liveX - candleSpacing;
-      ctx.fillStyle = tradeColor;
-      ctx.fillRect(entryX - 4, entryY - 4, 8, 8);
-
-      const stemLen = 38;
-      const targetY = isCall ? (entryY - stemLen) : (entryY + stemLen);
-      ctx.strokeStyle = tradeColor;
-      ctx.lineWidth = 1.8;
-      ctx.beginPath();
-      ctx.moveTo(entryX, entryY);
-      ctx.lineTo(entryX, targetY);
-      ctx.stroke();
-
-      const arrowSize = 6;
+      // Draw rounded pill
       ctx.fillStyle = tradeColor;
       ctx.beginPath();
-      if (isCall) {
-        ctx.moveTo(entryX, targetY - arrowSize * 1.5);
-        ctx.lineTo(entryX - arrowSize, targetY);
-        ctx.lineTo(entryX + arrowSize, targetY);
+      if (ctx.roundRect) {
+        ctx.roundRect(pillX, entryY - pillHeight / 2, pillWidth, pillHeight, 10);
       } else {
-        ctx.moveTo(entryX, targetY + arrowSize * 1.5);
-        ctx.lineTo(entryX - arrowSize, targetY);
-        ctx.lineTo(entryX + arrowSize, targetY);
+        ctx.fillRect(pillX, entryY - pillHeight / 2, pillWidth, pillHeight);
       }
-      ctx.closePath();
       ctx.fill();
 
-      const mm = String(Math.floor(roundTimeRemaining / 60)).padStart(2, '0');
-      const ss = String(roundTimeRemaining % 60).padStart(2, '0');
-      const tagText = `$${Number(trade.amount).toFixed(2)} (${mm}:${ss})`;
-
-      ctx.font = 'bold 11px JetBrains Mono, monospace';
+      // Pill text & dot
+      ctx.fillStyle = '#ffffff';
       ctx.textAlign = 'center';
-      const textY = isCall ? (targetY - arrowSize * 1.5 - 6) : (targetY + arrowSize * 1.5 + 14);
-
-      const textMetrics = ctx.measureText(tagText);
-      const pillW = textMetrics.width + 10;
-      const pillH = 18;
-      ctx.fillStyle = 'rgba(10, 14, 23, 0.9)';
-      ctx.fillRect(entryX - pillW / 2, textY - 13, pillW, pillH);
-      ctx.strokeStyle = tradeColor;
-      ctx.lineWidth = 0.8;
-      ctx.strokeRect(entryX - pillW / 2, textY - 13, pillW, pillH);
-
-      ctx.fillStyle = tradeColor;
-      ctx.fillText(tagText, entryX, textY);
-
-      const pnlDir = isCall ? 1 : -1;
-      const priceDiff = (currentPrice - entryPrice) * pnlDir;
-      const pnlPercent = priceDiff / (entryPrice || 1);
-      const pnlValue = pnlPercent * trade.amount * 1.85;
-      const pnlIsPos = pnlValue >= 0;
-
-      const pnlBadgeX = chartW - 142;
-      const pnlBadgeY = topPadding - 22;
-      ctx.fillStyle = pnlIsPos ? 'rgba(0, 229, 160, 0.15)' : 'rgba(255, 59, 92, 0.15)';
-      ctx.strokeStyle = pnlIsPos ? 'rgba(0, 229, 160, 0.4)' : 'rgba(255, 59, 92, 0.4)';
-      ctx.lineWidth = 1;
-      ctx.fillRect(pnlBadgeX, pnlBadgeY, 136, 22);
-      ctx.strokeRect(pnlBadgeX, pnlBadgeY, 136, 22);
-
-      ctx.fillStyle = pnlIsPos ? '#00c087' : '#ff5252';
-      ctx.font = 'bold 10.5px JetBrains Mono, monospace';
-      ctx.textAlign = 'center';
-      const pnlStr = (pnlIsPos ? '+' : '') + '$' + pnlValue.toFixed(2) + ' (' + (pnlPercent * 100).toFixed(2) + '%)';
-      ctx.fillText(pnlStr, pnlBadgeX + 68, pnlBadgeY + 15);
+      ctx.fillText(pillText, pillX + pillWidth / 2, entryY + 3.5);
 
       ctx.restore();
     });
 
-    // ── 8. Interactive Crosshair ──
-    if (crosshairPos && crosshairPos.x <= chartW && crosshairPos.y <= h - bottomPadding && crosshairPos.y >= topPadding) {
-      ctx.save();
-      ctx.setLineDash([3, 3]);
-      ctx.strokeStyle = 'rgba(255, 255, 255, 0.35)';
-      ctx.lineWidth = 0.8;
+  }, [candles, currentCandle, currentPrice, activeTrades, roundTimeRemaining, candleRemainingSec, chartType, showMA7, showEMA21, zoomLevel, currency]);
 
-      ctx.beginPath();
-      ctx.moveTo(crosshairPos.x, topPadding);
-      ctx.lineTo(crosshairPos.x, h - bottomPadding);
-      ctx.stroke();
-
-      ctx.beginPath();
-      ctx.moveTo(0, crosshairPos.y);
-      ctx.lineTo(chartW, crosshairPos.y);
-      ctx.stroke();
-      ctx.setLineDash([]);
-
-      const hoverPrice = yToPrice(crosshairPos.y);
-      ctx.fillStyle = '#1e2740';
-      ctx.fillRect(chartW + 1, crosshairPos.y - 9, tagW, 18);
-      ctx.strokeStyle = 'rgba(255, 255, 255, 0.2)';
-      ctx.strokeRect(chartW + 1, crosshairPos.y - 9, tagW, 18);
-
-      ctx.fillStyle = '#ffffff';
-      ctx.font = '9.5px JetBrains Mono, monospace';
-      ctx.textAlign = 'left';
-      ctx.fillText(hoverPrice.toFixed(2), chartW + 4, crosshairPos.y + 3.5);
-
-      ctx.restore();
-    }
-
-    // ── 9. Volume Bars Canvas ──
-    if (volCanvas) {
-      const vctx = volCanvas.getContext('2d');
-      vctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-      vctx.clearRect(0, 0, w, 38);
-
-      let maxVol = 1;
-      visible.forEach(c => { if ((c.volume || 1) > maxVol) maxVol = c.volume; });
-
-      visible.forEach((candle, i) => {
-        const x = (i + 1) * candleSpacing;
-        const isUp = candle.close >= candle.open;
-        const vol = candle.volume || 10;
-        const barH = (vol / maxVol) * 30;
-        vctx.fillStyle = isUp ? 'rgba(8, 153, 129, 0.45)' : 'rgba(242, 54, 69, 0.45)';
-        vctx.fillRect(x - candleW / 2, 38 - barH, candleW, barH);
-      });
-    }
-
-  }, [candles, currentCandle, currentPrice, activeTrades, roundTimeRemaining, candleRemainingSec, chartType, showMA7, showEMA21, crosshairPos]);
-
-  // Animation render loop
+  // Request Animation Frame loop for smooth tick renders
   useEffect(() => {
-    let active = true;
-    const renderLoop = () => {
-      if (!active) return;
+    let animId;
+    const render = () => {
       drawChart();
-      animFrameRef.current = requestAnimationFrame(renderLoop);
+      animId = requestAnimationFrame(render);
     };
-    animFrameRef.current = requestAnimationFrame(renderLoop);
-
-    return () => {
-      active = false;
-      if (animFrameRef.current) cancelAnimationFrame(animFrameRef.current);
-    };
+    animId = requestAnimationFrame(render);
+    return () => cancelAnimationFrame(animId);
   }, [drawChart]);
-
-  // Handle pointer interactions (Touch / Mouse)
-  const handlePointerMove = (e) => {
-    const container = containerRef.current;
-    if (!container) return;
-    const rect = container.getBoundingClientRect();
-    const x = e.clientX - rect.left;
-    const y = e.clientY - rect.top;
-    setCrosshairPos({ x, y });
-
-    const allCandles = [...candles];
-    if (currentCandle) allCandles.push(currentCandle);
-    const maxVisibleCandles = Math.min(allCandles.length, 30);
-    const visible = allCandles.slice(-maxVisibleCandles);
-    const totalSlots = maxVisibleCandles + 3.5;
-    const chartW = rect.width - 72;
-    const candleSpacing = chartW / totalSlots;
-
-    const candleIdx = Math.round(x / candleSpacing) - 1;
-    if (candleIdx >= 0 && candleIdx < visible.length) {
-      setHoverData(visible[candleIdx]);
-    } else {
-      setHoverData(null);
-    }
-  };
-
-  const handlePointerLeave = () => {
-    setCrosshairPos(null);
-    setHoverData(null);
-  };
-
-  const activeCandle = hoverData || currentCandle || (candles.length > 0 ? candles[candles.length - 1] : null);
-  const isUp = activeCandle && activeCandle.close >= activeCandle.open;
 
   return (
     <div
       ref={containerRef}
-      className="chart-viewport-box"
-      onPointerMove={handlePointerMove}
-      onPointerLeave={handlePointerLeave}
       style={{
-        position: 'relative',
-        width: '100%',
         flex: 1,
-        minHeight: 270,
-        background: '#0a0e17',
-        display: 'flex',
-        flexDirection: 'column',
+        position: 'relative',
+        background: '#111622',
         overflow: 'hidden',
-        touchAction: 'none'
+        width: '100%',
+        height: '100%',
+        display: 'flex'
       }}
     >
-      {/* ── Top Pro OHLCV Live Data Bar ── */}
+      {/* ── Quotex Bull/Bear Sentiment Meter Pinned to Far Left ── */}
       <div style={{
         position: 'absolute',
-        top: 6,
-        left: 10,
-        right: 80,
+        top: 24,
+        bottom: 26,
+        left: 6,
+        width: 22,
+        display: 'flex',
+        flexDirection: 'column',
+        alignItems: 'center',
+        zIndex: 20,
+        userSelect: 'none'
+      }}>
+        {/* Call (Bull) Percentage Label */}
+        <span style={{
+          color: '#0faf59',
+          fontWeight: 800,
+          fontSize: '0.68rem',
+          fontFamily: 'JetBrains Mono, monospace',
+          marginBottom: 4
+        }}>
+          {sentimentPool.callPct}%
+        </span>
+
+        {/* Vertical Split Bar */}
+        <div style={{
+          flex: 1,
+          width: 6,
+          borderRadius: 3,
+          background: '#1a2233',
+          display: 'flex',
+          flexDirection: 'column',
+          overflow: 'hidden'
+        }}>
+          {/* Green Segment */}
+          <div style={{
+            height: `${sentimentPool.callPct}%`,
+            background: 'linear-gradient(180deg, #0faf59 0%, #009944 100%)',
+            transition: 'height 0.4s ease'
+          }} />
+          {/* Red Segment */}
+          <div style={{
+            height: `${sentimentPool.putPct}%`,
+            background: 'linear-gradient(180deg, #ff4a4a 0%, #cc2b2b 100%)',
+            transition: 'height 0.4s ease'
+          }} />
+        </div>
+
+        {/* Put (Bear) Percentage Label */}
+        <span style={{
+          color: '#ff4a4a',
+          fontWeight: 800,
+          fontSize: '0.68rem',
+          fontFamily: 'JetBrains Mono, monospace',
+          marginTop: 4
+        }}>
+          {sentimentPool.putPct}%
+        </span>
+      </div>
+
+      {/* Main Canvas */}
+      <canvas
+        ref={mainCanvasRef}
+        style={{
+          width: '100%',
+          height: '100%',
+          display: 'block'
+        }}
+      />
+
+      {/* ── Quotex Floating Chart Tools (Bottom-Left) ── */}
+      <div style={{
+        position: 'absolute',
+        bottom: 12,
+        left: 36,
         display: 'flex',
         alignItems: 'center',
-        justifyContent: 'space-between',
-        zIndex: 20,
-        pointerEvents: 'none'
+        gap: 6,
+        zIndex: 30,
+        background: 'rgba(19, 24, 36, 0.92)',
+        padding: '3px 8px',
+        borderRadius: 8,
+        border: '1px solid rgba(255, 255, 255, 0.08)',
+        backdropFilter: 'blur(8px)'
       }}>
-        <div style={{
-          display: 'flex',
-          alignItems: 'center',
-          gap: 7,
-          fontSize: '0.72rem',
-          fontFamily: 'JetBrains Mono, monospace',
-          background: 'rgba(10, 14, 23, 0.75)',
-          padding: '2px 8px',
-          borderRadius: 4,
-          backdropFilter: 'blur(4px)'
-        }}>
-          <span style={{ fontWeight: 800, color: '#fff' }}>{asset}</span>
-          {activeCandle && (
-            <>
-              <span style={{ color: '#8a94a8' }}>O:<span style={{ color: isUp ? '#00e5a0' : '#ff5252' }}>{activeCandle.open?.toFixed(2)}</span></span>
-              <span style={{ color: '#8a94a8' }}>H:<span style={{ color: isUp ? '#00e5a0' : '#ff5252' }}>{activeCandle.high?.toFixed(2)}</span></span>
-              <span style={{ color: '#8a94a8' }}>L:<span style={{ color: isUp ? '#00e5a0' : '#ff5252' }}>{activeCandle.low?.toFixed(2)}</span></span>
-              <span style={{ color: '#8a94a8' }}>C:<span style={{ color: isUp ? '#00e5a0' : '#ff5252' }}>{activeCandle.close?.toFixed(2)}</span></span>
-            </>
+        {/* Timeframe Button */}
+        <div style={{ position: 'relative' }}>
+          <button
+            onClick={() => setShowTimeframeDropdown(!showTimeframeDropdown)}
+            style={{
+              padding: '4px 8px',
+              borderRadius: 5,
+              background: 'rgba(255, 255, 255, 0.05)',
+              color: '#fff',
+              fontSize: '0.72rem',
+              fontWeight: 700,
+              cursor: 'pointer',
+              display: 'flex',
+              alignItems: 'center',
+              gap: 3
+            }}
+          >
+            <span>{timeframe}</span>
+            <span style={{ fontSize: '0.6rem', color: '#7b879c' }}>▾</span>
+          </button>
+
+          {showTimeframeDropdown && (
+            <div style={{
+              position: 'absolute',
+              bottom: '120%',
+              left: 0,
+              background: '#161c2b',
+              border: '1px solid rgba(255, 255, 255, 0.12)',
+              borderRadius: 8,
+              padding: 4,
+              boxShadow: '0 6px 16px rgba(0,0,0,0.5)',
+              display: 'flex',
+              flexDirection: 'column',
+              gap: 2,
+              zIndex: 100
+            }}>
+              {['5s', '15s', '30s', '1m', '2m', '5m'].map(tf => (
+                <button
+                  key={tf}
+                  onClick={() => {
+                    setTimeframe(tf);
+                    setShowTimeframeDropdown(false);
+                  }}
+                  style={{
+                    padding: '4px 10px',
+                    borderRadius: 4,
+                    background: timeframe === tf ? '#0077ff' : 'transparent',
+                    color: '#fff',
+                    fontSize: '0.72rem',
+                    fontWeight: 700,
+                    textAlign: 'left',
+                    cursor: 'pointer'
+                  }}
+                >
+                  {tf}
+                </button>
+              ))}
+            </div>
           )}
         </div>
 
-        {/* Indicator & View Toggles */}
-        <div style={{ display: 'flex', gap: 4, pointerEvents: 'auto' }}>
+        {/* Chart Type Toggle (Candles vs Line) */}
+        <button
+          onClick={() => setChartType(prev => prev === 'candle' ? 'line' : 'candle')}
+          style={{
+            padding: '4px 8px',
+            borderRadius: 5,
+            background: 'rgba(255, 255, 255, 0.05)',
+            color: '#8fa0b5',
+            fontSize: '0.72rem',
+            cursor: 'pointer',
+            display: 'flex',
+            alignItems: 'center',
+            gap: 4
+          }}
+          title={chartType === 'candle' ? 'Switch to Line' : 'Switch to Candlesticks'}
+        >
+          {chartType === 'candle' ? '🕯️' : '📈'}
+        </button>
+
+        {/* Indicators Toggle */}
+        <button
+          onClick={() => setShowIndicators(!showIndicators)}
+          style={{
+            padding: '4px 8px',
+            borderRadius: 5,
+            background: (showMA7 || showEMA21) ? 'rgba(0, 119, 255, 0.2)' : 'rgba(255, 255, 255, 0.05)',
+            color: (showMA7 || showEMA21) ? '#0077ff' : '#8fa0b5',
+            fontSize: '0.72rem',
+            fontWeight: 700,
+            cursor: 'pointer'
+          }}
+          title="Indicators"
+        >
+          ƒ(x)
+        </button>
+
+        {showIndicators && (
+          <div style={{
+            position: 'absolute',
+            bottom: '120%',
+            left: 50,
+            background: '#161c2b',
+            border: '1px solid rgba(255, 255, 255, 0.12)',
+            borderRadius: 8,
+            padding: 8,
+            boxShadow: '0 6px 16px rgba(0,0,0,0.5)',
+            display: 'flex',
+            flexDirection: 'column',
+            gap: 6,
+            zIndex: 100,
+            width: 140
+          }}>
+            <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: '0.72rem', color: '#f5a623', cursor: 'pointer' }}>
+              <input type="checkbox" checked={showMA7} onChange={(e) => setShowMA7(e.target.checked)} />
+              <span>SMA (7)</span>
+            </label>
+            <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: '0.72rem', color: '#0077ff', cursor: 'pointer' }}>
+              <input type="checkbox" checked={showEMA21} onChange={(e) => setShowEMA21(e.target.checked)} />
+              <span>EMA (21)</span>
+            </label>
+          </div>
+        )}
+
+        {/* Zoom Controls */}
+        <div style={{ display: 'flex', alignItems: 'center', gap: 2, marginLeft: 4 }}>
           <button
-            onClick={() => setChartType(prev => prev === 'candle' ? 'line' : 'candle')}
+            onClick={() => setZoomLevel(prev => Math.max(15, prev - 5))}
             style={{
-              padding: '2px 7px',
+              width: 22,
+              height: 22,
               borderRadius: 4,
-              background: 'rgba(21, 27, 43, 0.85)',
-              border: '1px solid rgba(255, 255, 255, 0.1)',
-              color: '#8a94a8',
-              fontSize: '0.68rem',
-              fontWeight: 700
+              background: 'rgba(255, 255, 255, 0.05)',
+              color: '#8fa0b5',
+              fontSize: '0.85rem',
+              fontWeight: 800,
+              cursor: 'pointer',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center'
             }}
+            title="Zoom In"
           >
-            {chartType === 'candle' ? '🕯️' : '📈'}
+            +
           </button>
           <button
-            onClick={() => setShowMA7(prev => !prev)}
+            onClick={() => setZoomLevel(prev => Math.min(60, prev + 5))}
             style={{
-              padding: '2px 6px',
+              width: 22,
+              height: 22,
               borderRadius: 4,
-              background: showMA7 ? 'rgba(240, 165, 0, 0.25)' : 'rgba(21, 27, 43, 0.85)',
-              border: showMA7 ? '1px solid #f0a500' : '1px solid rgba(255, 255, 255, 0.1)',
-              color: showMA7 ? '#f0a500' : '#8a94a8',
-              fontSize: '0.68rem',
-              fontWeight: 700
+              background: 'rgba(255, 255, 255, 0.05)',
+              color: '#8fa0b5',
+              fontSize: '0.85rem',
+              fontWeight: 800,
+              cursor: 'pointer',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center'
             }}
+            title="Zoom Out"
           >
-            MA7
-          </button>
-          <button
-            onClick={() => setShowEMA21(prev => !prev)}
-            style={{
-              padding: '2px 6px',
-              borderRadius: 4,
-              background: showEMA21 ? 'rgba(0, 180, 216, 0.25)' : 'rgba(21, 27, 43, 0.85)',
-              border: showEMA21 ? '1px solid #00b4d8' : '1px solid rgba(255, 255, 255, 0.1)',
-              color: showEMA21 ? '#00b4d8' : '#8a94a8',
-              fontSize: '0.68rem',
-              fontWeight: 700
-            }}
-          >
-            EMA21
+            -
           </button>
         </div>
       </div>
-
-      {/* Main Canvas for Candlesticks & Overlays */}
-      <canvas ref={mainCanvasRef} style={{ display: 'block', flex: 1 }} />
-
-      {/* Sub-canvas for Volume Bars */}
-      <canvas ref={volumeCanvasRef} style={{ display: 'block', height: 38 }} />
     </div>
   );
 }

@@ -1,26 +1,35 @@
-# Multi-stage Dockerfile for unified Node fullstack deployment
-FROM node:22-alpine
+# Stage 1: Build client frontend
+FROM node:22-alpine AS client-builder
+WORKDIR /app/client
+COPY client/package*.json ./
+RUN npm install
+COPY client/ ./
+RUN npm run build
 
+# Stage 2: Production runner
+FROM node:22-alpine AS runner
 WORKDIR /app
 
-# Copy root and client package definitions
+# Install production dependencies for server
 COPY package*.json ./
-COPY client/package*.json ./client/
+RUN npm install --omit=dev
 
-# Install dependencies
-RUN npm install
-RUN npm --prefix client install
+# Copy server code
+COPY server/ ./server/
 
-# Copy application source code
-COPY . .
+# Copy built frontend assets from client-builder
+COPY --from=client-builder /app/client/dist ./client/dist
 
-# Build React PWA into client/dist
-RUN npm --prefix client run build
+# Default environment variables
+ENV NODE_ENV=production
+ENV PORT=5000
 
-# Expose default port
+# Expose application port
 EXPOSE 5000
 
-ENV NODE_ENV=production
+# Healthcheck using built-in /api/status endpoint
+HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 \
+  CMD wget --no-verbose --tries=1 --spider http://localhost:5000/api/status || exit 1
 
 # Start unified server
 CMD ["node", "server/server.js"]

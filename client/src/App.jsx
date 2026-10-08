@@ -1,15 +1,18 @@
 import React, { useState, useEffect } from 'react';
 import Header from './components/Header.jsx';
+import Sidebar from './components/Sidebar.jsx';
 import AssetBar from './components/AssetBar.jsx';
 import Chart from './components/Chart.jsx';
-import PoolBar from './components/PoolBar.jsx';
 import TradingPanel from './components/TradingPanel.jsx';
-import BottomNav from './components/BottomNav.jsx';
 import OrdersDrawer from './components/Drawers/OrdersDrawer.jsx';
 import DepositDrawer from './components/Drawers/DepositDrawer.jsx';
 import MarketDrawer from './components/Drawers/MarketDrawer.jsx';
 import ResultModal from './components/Drawers/ResultModal.jsx';
 import PwaModal from './components/Drawers/PwaModal.jsx';
+import AuthModal from './components/Drawers/AuthModal.jsx';
+import AdminPanel from './components/Drawers/AdminPanel.jsx';
+import TournamentsModal from './components/Drawers/TournamentsModal.jsx';
+import SupportModal from './components/Drawers/SupportModal.jsx';
 import { socket, userId } from './services/socket.js';
 import { sounds } from './services/sound.js';
 
@@ -17,33 +20,46 @@ export default function App() {
   // Connection & User State
   const [isOnline, setIsOnline] = useState(false);
   const [user, setUser] = useState(null);
-  const [balance, setBalance] = useState(9379.63);
+  const [isDemo, setIsDemo] = useState(true);
+  const [currency, setCurrency] = useState('INR'); // 'INR' or 'USD'
+
+  // Multi-Asset Tabs State (matching screenshot)
+  const [openTabs, setOpenTabs] = useState([
+    { symbol: 'USD/CAD', name: 'US Dollar / Canadian Dollar OTC', payout: 60, icon: '🇺🇸🇨🇦' },
+    { symbol: 'BTC/USDT OTC', name: 'Bitcoin Rapid OTC', payout: 85, icon: '₿' },
+    { symbol: 'EUR/USD OTC', name: 'Euro / US Dollar OTC', payout: 82, icon: '🇪🇺🇺🇸' },
+    { symbol: 'USD/PKR OTC', name: 'US Dollar / Pakistani Rupee OTC', payout: 75, icon: '🇺🇸🇵🇰' }
+  ]);
+  const [activeAsset, setActiveAsset] = useState('USD/CAD');
 
   // Market & Engine State
-  const [asset, setAsset] = useState('BTC/USDT OTC');
-  const [currentPrice, setCurrentPrice] = useState(96420.50);
-  const [candles, setCandles] = useState([]);
-  const [currentCandle, setCurrentCandle] = useState(null);
+  const [serverPrice, setServerPrice] = useState(96420.50);
+  const [rawCandles, setRawCandles] = useState([]);
+  const [rawCurrentCandle, setRawCurrentCandle] = useState(null);
   const [round, setRound] = useState(null);
-  const [remainingSec, setRemainingSec] = useState(30);
+  const [remainingSec, setRemainingSec] = useState(35);
   const [candleRemainingSec, setCandleRemainingSec] = useState(5);
   const [isLocked, setIsLocked] = useState(false);
-  const [pool, setPool] = useState({ callAmount: 180, putAmount: 120, callPct: 60, putPct: 40 });
+  const [pool, setPool] = useState({ callAmount: 180, putAmount: 120, callPct: 74, putPct: 26 });
 
-  // User Trades State
+  // User Trades State (Default 10,900 for INR matching screenshot)
   const [activeTrades, setActiveTrades] = useState([]);
   const [tradeHistory, setTradeHistory] = useState([]);
-  const [betAmount, setBetAmount] = useState(50);
+  const [betAmount, setBetAmount] = useState(10900);
 
   // Audio & UI Controls
   const [isMuted, setIsMuted] = useState(false);
-  const [activeTab, setActiveTab] = useState('trade');
+  const [activeNav, setActiveNav] = useState('trade');
 
   // Drawers & Modals
   const [ordersOpen, setOrdersOpen] = useState(false);
   const [depositOpen, setDepositOpen] = useState(false);
   const [marketOpen, setMarketOpen] = useState(false);
   const [pwaOpen, setPwaOpen] = useState(false);
+  const [authOpen, setAuthOpen] = useState(false);
+  const [adminOpen, setAdminOpen] = useState(false);
+  const [tournamentsOpen, setTournamentsOpen] = useState(false);
+  const [supportOpen, setSupportOpen] = useState(false);
   const [resultData, setResultData] = useState(null);
   const [toast, setToast] = useState(null);
 
@@ -55,14 +71,30 @@ export default function App() {
       e.preventDefault();
       setDeferredPrompt(e);
     });
+    checkUserSession();
   }, []);
+
+  const checkUserSession = async () => {
+    const token = localStorage.getItem('otc_token');
+    const storedUid = localStorage.getItem('otc_user_id') || userId;
+    try {
+      const headers = token ? { 'Authorization': `Bearer ${token}` } : {};
+      const res = await fetch(`/api/auth/me?userId=${storedUid}`, { headers });
+      const data = await res.json();
+      if (data.success && data.user) {
+        setUser(data.user);
+      }
+    } catch (e) {
+      console.warn('Session check error', e);
+    }
+  };
 
   const handleInstallApp = async () => {
     if (deferredPrompt) {
       deferredPrompt.prompt();
       const choiceResult = await deferredPrompt.userChoice;
       if (choiceResult.outcome === 'accepted') {
-        showToast('TradeNext PWA Installed!', 'success');
+        showToast('Quotex PWA Installed!', 'success');
       }
       setDeferredPrompt(null);
       setPwaOpen(false);
@@ -72,6 +104,20 @@ export default function App() {
   const showToast = (message, type = 'info') => {
     setToast({ message, type });
     setTimeout(() => setToast(null), 3000);
+  };
+
+  // Switch currency helper
+  const handleToggleCurrency = () => {
+    setCurrency(prev => {
+      const next = prev === 'INR' ? 'USD' : 'INR';
+      if (next === 'INR') {
+        setBetAmount(10900);
+      } else {
+        setBetAmount(50);
+      }
+      showToast(`Switched currency to ${next === 'INR' ? '₹ INR' : '$ USD'}`, 'info');
+      return next;
+    });
   };
 
   // Socket.io Subscriptions
@@ -87,12 +133,11 @@ export default function App() {
 
     socket.on('INITIAL_STATE', (data) => {
       if (data.user) {
-        setUser(data.user);
-        setBalance(data.user.demoBalance ?? 9379.63);
+        setUser(prev => prev || data.user);
       }
-      if (data.candles) setCandles(data.candles);
-      if (data.currentCandle) setCurrentCandle(data.currentCandle);
-      if (data.currentPrice) setCurrentPrice(data.currentPrice);
+      if (data.candles) setRawCandles(data.candles);
+      if (data.currentCandle) setRawCurrentCandle(data.currentCandle);
+      if (data.currentPrice) setServerPrice(data.currentPrice);
       if (data.round) {
         setRound(data.round);
         setRemainingSec(data.round.remainingSec);
@@ -103,8 +148,8 @@ export default function App() {
     });
 
     socket.on('TICK', (data) => {
-      setCurrentPrice(data.price);
-      if (data.candle) setCurrentCandle(data.candle);
+      setServerPrice(data.price);
+      if (data.candle) setRawCurrentCandle(data.candle);
       if (typeof data.remainingSec === 'number') {
         setRemainingSec(data.remainingSec);
       }
@@ -115,13 +160,13 @@ export default function App() {
 
     socket.on('CANDLE_CLOSE', (data) => {
       if (data.candle) {
-        setCandles(prev => {
+        setRawCandles(prev => {
           const next = [...prev, data.candle];
           return next.length > 70 ? next.slice(-70) : next;
         });
       }
       if (data.newCandle) {
-        setCurrentCandle(data.newCandle);
+        setRawCurrentCandle(data.newCandle);
       }
     });
 
@@ -129,7 +174,7 @@ export default function App() {
       setPool(updatedPool);
     });
 
-    socket.on('ROUND_LOCKED', (data) => {
+    socket.on('ROUND_LOCKED', () => {
       setIsLocked(true);
       showToast('Bets locked. Settling round...', 'warning');
     });
@@ -139,15 +184,20 @@ export default function App() {
       setRemainingSec(roundData.remainingSec);
       setIsLocked(false);
       setPool(roundData.pool);
-      setActiveTrades([]); // Clear in-flight trades for the new round
+      setActiveTrades([]);
     });
 
     socket.on('TRADE_CONFIRMED', (data) => {
       sounds.playBet();
       setActiveTrades(prev => [...prev, data.trade]);
-      setBalance(data.newBalance);
-      showToast(`Order Placed: ${data.trade.direction} $${data.trade.amount}`, 'success');
-      // Fetch updated history
+      setUser(prev => {
+        if (!prev) return prev;
+        return isDemo 
+          ? { ...prev, demoBalance: data.newBalance }
+          : { ...prev, balance: data.newBalance };
+      });
+      const sym = currency === 'INR' ? '₹' : '$';
+      showToast(`Trade Placed: ${data.trade.direction} ${sym}${betAmount}`, 'success');
       fetchTradeHistory();
     });
 
@@ -156,8 +206,8 @@ export default function App() {
     });
 
     socket.on('ROUND_RESOLVED', (data) => {
-      // Find if current user had a trade in this round
-      const myResult = data.results?.find(r => r.userId === userId);
+      const currentUid = user?.userId || userId;
+      const myResult = data.results?.find(r => r.userId === currentUid);
       if (myResult) {
         if (myResult.isWin) {
           sounds.playWin();
@@ -171,7 +221,6 @@ export default function App() {
         });
       }
 
-      // Refresh balance and history from server
       fetchUserProfile();
       fetchTradeHistory();
     });
@@ -189,16 +238,15 @@ export default function App() {
       socket.off('TRADE_ERROR');
       socket.off('ROUND_RESOLVED');
     };
-  }, []);
+  }, [user, isDemo, betAmount, currency]);
 
-  // Fetch helpers
   const fetchUserProfile = async () => {
+    const currentUid = user?.userId || userId;
     try {
-      const res = await fetch(`/api/user/${userId}`);
+      const res = await fetch(`/api/user/${currentUid}`);
       const data = await res.json();
       if (data.success && data.user) {
         setUser(data.user);
-        setBalance(data.user.demoBalance);
       }
     } catch (e) {
       console.warn('Error fetching user', e);
@@ -206,8 +254,9 @@ export default function App() {
   };
 
   const fetchTradeHistory = async () => {
+    const currentUid = user?.userId || userId;
     try {
-      const res = await fetch(`/api/trades/${userId}`);
+      const res = await fetch(`/api/trades/${currentUid}`);
       const data = await res.json();
       if (data.success && data.trades) {
         setTradeHistory(data.trades);
@@ -219,28 +268,35 @@ export default function App() {
 
   // Place Trade Action
   const handlePlaceTrade = (direction) => {
-    if (balance < betAmount) {
-      showToast('Insufficient balance for this trade', 'error');
+    const inrRate = 85.5;
+    const rawBal = isDemo ? Number(user?.demoBalance ?? 10000) : Number(user?.balance ?? 0);
+    const effectiveBalance = currency === 'INR' ? rawBal * inrRate : rawBal;
+
+    if (effectiveBalance < betAmount) {
+      showToast(`Insufficient balance for this trade`, 'error');
       return;
     }
+
+    const serverAmount = currency === 'INR' ? +(betAmount / inrRate).toFixed(2) : betAmount;
     socket.emit('PLACE_TRADE', {
-      amount: betAmount,
+      amount: serverAmount,
       direction,
-      isDemo: true
+      isDemo
     });
   };
 
   // Deposit Actions
   const handleDeposit = async (amount) => {
+    const currentUid = user?.userId || userId;
     try {
       const res = await fetch('/api/user/deposit', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ userId, amount, isDemo: true })
+        body: JSON.stringify({ userId: currentUid, amount, isDemo })
       });
       const data = await res.json();
       if (data.success) {
-        setBalance(data.user.demoBalance);
+        setUser(data.user);
         showToast(`Successfully deposited +$${amount.toFixed(2)}`, 'success');
       }
     } catch (e) {
@@ -249,20 +305,29 @@ export default function App() {
   };
 
   const handleResetBalance = async () => {
+    const currentUid = user?.userId || userId;
     try {
       const res = await fetch('/api/user/reset', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ userId, isDemo: true })
+        body: JSON.stringify({ userId: currentUid, isDemo: true })
       });
       const data = await res.json();
       if (data.success) {
-        setBalance(data.user.demoBalance);
-        showToast('Balance reset to $9,379.63', 'info');
+        setUser(data.user);
+        showToast('Demo balance refilled!', 'info');
       }
     } catch (e) {
       showToast('Reset failed', 'error');
     }
+  };
+
+  const handleLogout = () => {
+    localStorage.removeItem('otc_token');
+    localStorage.removeItem('otc_user_id');
+    setUser(null);
+    showToast('Logged out successfully', 'info');
+    setTimeout(() => window.location.reload(), 500);
   };
 
   const toggleMute = () => {
@@ -271,78 +336,187 @@ export default function App() {
     showToast(muted ? 'Sound Muted' : 'Sound Enabled', 'info');
   };
 
+  // Tab Handlers
+  const handleSelectTab = (sym) => {
+    setActiveAsset(sym);
+  };
+
+  const handleCloseTab = (sym) => {
+    if (openTabs.length <= 1) return;
+    const nextTabs = openTabs.filter(t => t.symbol !== sym);
+    setOpenTabs(nextTabs);
+    if (activeAsset === sym) {
+      setActiveAsset(nextTabs[0].symbol);
+    }
+  };
+
+  const handleAddAssetTab = (sym) => {
+    if (!openTabs.find(t => t.symbol === sym)) {
+      setOpenTabs(prev => [...prev, { symbol: sym, name: sym, payout: 80, icon: '📈' }]);
+    }
+    setActiveAsset(sym);
+  };
+
+  // Get active tab details
+  const activeTabMeta = openTabs.find(t => t.symbol === activeAsset) || {
+    symbol: activeAsset,
+    payout: 60
+  };
+
+  // Price & Candle Scaling: When USD/CAD is selected, adapt to 1.42415
+  const isUsdCad = activeAsset.includes('USD/CAD');
+  const usdCadScale = 1.42415 / 96420;
+
+  const displayCurrentPrice = isUsdCad 
+    ? +(serverPrice * usdCadScale).toFixed(5) 
+    : serverPrice;
+
+  const displayCandles = isUsdCad
+    ? rawCandles.map(c => ({
+        ...c,
+        open: +(c.open * usdCadScale).toFixed(5),
+        high: +(c.high * usdCadScale).toFixed(5),
+        low: +(c.low * usdCadScale).toFixed(5),
+        close: +(c.close * usdCadScale).toFixed(5)
+      }))
+    : rawCandles;
+
+  const displayCurrentCandle = rawCurrentCandle && isUsdCad
+    ? {
+        ...rawCurrentCandle,
+        open: +(rawCurrentCandle.open * usdCadScale).toFixed(5),
+        high: +(rawCurrentCandle.high * usdCadScale).toFixed(5),
+        low: +(rawCurrentCandle.low * usdCadScale).toFixed(5),
+        close: +(rawCurrentCandle.close * usdCadScale).toFixed(5)
+      }
+    : rawCurrentCandle;
+
+  // Active trades formatted for chart & panel
+  const displayActiveTrades = activeTrades.map(t => ({
+    ...t,
+    amount: currency === 'INR' ? Math.round(t.amount * 85.5) : t.amount,
+    entryPrice: isUsdCad ? +(t.entryPrice * usdCadScale).toFixed(5) : t.entryPrice
+  }));
+
+  const inrRate = 85.5;
+  const rawBal = isDemo ? Number(user?.demoBalance ?? 10000) : Number(user?.balance ?? 0);
+  const currentDisplayBalance = currency === 'INR' ? rawBal * inrRate : rawBal;
+
   return (
     <div style={{
       display: 'flex',
       flexDirection: 'column',
+      width: '100vw',
+      height: '100vh',
       height: '100dvh',
-      maxWidth: 450,
-      margin: '0 auto',
-      background: 'var(--bg-primary)',
-      color: 'var(--text-primary)',
-      position: 'relative',
+      background: '#111622',
+      color: '#e8edf5',
       overflow: 'hidden',
-      borderLeft: '1px solid rgba(255,255,255,0.06)',
-      borderRight: '1px solid rgba(255,255,255,0.06)'
+      position: 'relative'
     }}>
-      {/* Top Header */}
+      {/* ── Quotex Top Header ── */}
       <Header
-        balance={balance}
+        user={user}
+        isDemo={isDemo}
+        onToggleAccountMode={(demoMode) => {
+          setIsDemo(demoMode);
+          showToast(demoMode ? 'Switched to Demo Account' : 'Switched to Real Account', 'info');
+        }}
         isOnline={isOnline}
+        currency={currency}
+        onToggleCurrency={handleToggleCurrency}
         onOpenDeposit={() => setDepositOpen(true)}
-      />
-
-      {/* Asset Bar */}
-      <AssetBar
-        asset={asset}
-        currentPrice={currentPrice}
+        onOpenAuth={() => setAuthOpen(true)}
+        onOpenAdmin={() => setAdminOpen(true)}
+        onLogout={handleLogout}
         isMuted={isMuted}
         onToggleMute={toggleMute}
-        onOpenAssetSelect={() => setMarketOpen(true)}
+        onResetBalance={handleResetBalance}
       />
 
-      {/* Live Candlestick Canvas Chart with Trade Overlay */}
-      <Chart
-        candles={candles}
-        currentCandle={currentCandle}
-        currentPrice={currentPrice}
-        activeTrades={activeTrades}
-        roundTimeRemaining={remainingSec}
-        candleRemainingSec={candleRemainingSec}
-        roundDuration={30}
-        asset={asset}
+      {/* ── Main Trading Studio (Quotex 3-Column Desktop Layout) ── */}
+      <div style={{
+        display: 'flex',
+        flex: 1,
+        minHeight: 0,
+        position: 'relative',
+        overflow: 'hidden'
+      }}>
+        {/* Left Navigation Rail (Quotex Sidebar) */}
+        <Sidebar
+          activeNav={activeNav}
+          onSelectNav={(nav) => setActiveNav(nav)}
+          onOpenSupport={() => setSupportOpen(true)}
+          onOpenAccount={() => setAuthOpen(true)}
+          onOpenTournaments={() => setTournamentsOpen(true)}
+          onOpenMarket={() => setMarketOpen(true)}
+          onOpenAdmin={() => setAdminOpen(true)}
+          isMuted={isMuted}
+          onToggleMute={toggleMute}
+          onOpenAssetSelect={() => setMarketOpen(true)}
+        />
+
+        {/* Center: Multi-Asset Tabs + Canvas Chart */}
+        <div style={{
+          display: 'flex',
+          flexDirection: 'column',
+          flex: 1,
+          minWidth: 0,
+          position: 'relative',
+          overflow: 'hidden'
+        }}>
+          {/* Multi-Asset Tabs Bar */}
+          <AssetBar
+            openTabs={openTabs}
+            activeAsset={activeAsset}
+            onSelectTab={handleSelectTab}
+            onCloseTab={handleCloseTab}
+            onOpenAssetSelect={() => setMarketOpen(true)}
+            investmentAmount={betAmount}
+            currency={currency}
+          />
+
+          {/* Canvas Chart with Quotex Vertical Sentiment Gauge */}
+          <Chart
+            candles={displayCandles}
+            currentCandle={displayCurrentCandle}
+            currentPrice={displayCurrentPrice}
+            activeTrades={displayActiveTrades}
+            roundTimeRemaining={remainingSec}
+            candleRemainingSec={candleRemainingSec}
+            asset={activeAsset}
+            sentimentPool={pool}
+            currency={currency}
+          />
+        </div>
+
+        {/* Right Trading Panel (Exact Quotex Time, Investment, Payout, Buy/Sell, Trades) */}
+        <TradingPanel
+          amount={betAmount}
+          setAmount={setBetAmount}
+          balance={currentDisplayBalance}
+          isLocked={isLocked}
+          onPlaceTrade={handlePlaceTrade}
+          asset={activeAsset}
+          payoutPct={activeTabMeta.payout}
+          currency={currency}
+          activeTrades={displayActiveTrades}
+          tradeHistory={tradeHistory}
+          roundTimeRemaining={remainingSec}
+        />
+      </div>
+
+      {/* ── Modals & Drawers ── */}
+      <TournamentsModal
+        isOpen={tournamentsOpen}
+        onClose={() => setTournamentsOpen(false)}
       />
 
-      {/* Color-Prediction Dynamic Sentiment Pool Bar */}
-      <PoolBar
-        pool={pool}
-        remainingSec={remainingSec}
-        isLocked={isLocked}
+      <SupportModal
+        isOpen={supportOpen}
+        onClose={() => setSupportOpen(false)}
       />
 
-      {/* Quick Trading Amount & Action Buttons (BUY/SELL) */}
-      <TradingPanel
-        amount={betAmount}
-        setAmount={setBetAmount}
-        balance={balance}
-        isLocked={isLocked}
-        onPlaceTrade={handlePlaceTrade}
-      />
-
-      {/* Mobile Bottom Navigation */}
-      <BottomNav
-        activeTab={activeTab}
-        setActiveTab={setActiveTab}
-        onOpenOrders={() => {
-          fetchTradeHistory();
-          setOrdersOpen(true);
-        }}
-        onOpenMarket={() => setMarketOpen(true)}
-        onOpenWallet={() => setDepositOpen(true)}
-        onOpenPwa={() => setPwaOpen(true)}
-      />
-
-      {/* Drawers & Modals */}
       <OrdersDrawer
         isOpen={ordersOpen}
         onClose={() => setOrdersOpen(false)}
@@ -352,16 +526,18 @@ export default function App() {
       <DepositDrawer
         isOpen={depositOpen}
         onClose={() => setDepositOpen(false)}
-        currentBalance={balance}
+        user={user}
+        isDemo={isDemo}
         onDeposit={handleDeposit}
         onReset={handleResetBalance}
+        showToast={showToast}
       />
 
       <MarketDrawer
         isOpen={marketOpen}
         onClose={() => setMarketOpen(false)}
-        currentAsset={asset}
-        onSelectAsset={(selected) => setAsset(selected)}
+        currentAsset={activeAsset}
+        onSelectAsset={(selected) => handleAddAssetTab(selected)}
       />
 
       <ResultModal
@@ -376,23 +552,39 @@ export default function App() {
         onInstallApp={handleInstallApp}
       />
 
+      <AuthModal
+        isOpen={authOpen}
+        onClose={() => setAuthOpen(false)}
+        onAuthSuccess={(authenticatedUser) => {
+          setUser(authenticatedUser);
+          showToast(`Logged in as ${authenticatedUser.username}`, 'success');
+        }}
+        showToast={showToast}
+      />
+
+      <AdminPanel
+        isOpen={adminOpen}
+        onClose={() => setAdminOpen(false)}
+        showToast={showToast}
+      />
+
       {/* Toast Notification */}
       {toast && (
         <div style={{
           position: 'fixed',
-          top: 70,
+          top: 60,
           left: '50%',
           transform: 'translateX(-50%)',
-          background: toast.type === 'error' ? 'rgba(255, 59, 92, 0.95)' : 
-                      toast.type === 'success' ? 'rgba(0, 229, 160, 0.95)' : 
-                      'rgba(0, 180, 216, 0.95)',
-          color: toast.type === 'success' ? '#0a0e17' : '#fff',
-          padding: '8px 16px',
+          background: toast.type === 'error' ? 'rgba(255, 74, 74, 0.95)' : 
+                      toast.type === 'success' ? 'rgba(15, 175, 89, 0.95)' : 
+                      'rgba(0, 119, 255, 0.95)',
+          color: '#fff',
+          padding: '8px 18px',
           borderRadius: 20,
-          fontSize: '0.8rem',
+          fontSize: '0.82rem',
           fontWeight: 700,
-          zIndex: 200,
-          boxShadow: '0 4px 16px rgba(0,0,0,0.4)',
+          zIndex: 2000,
+          boxShadow: '0 4px 16px rgba(0,0,0,0.5)',
           pointerEvents: 'none',
           animation: 'fadeIn 0.2s ease'
         }}>

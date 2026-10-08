@@ -1,89 +1,134 @@
 import React from 'react';
-import { sounds } from '../services/sound.js';
 
-export default function AssetBar({ asset, currentPrice, priceChange = 1.45, isMuted, onToggleMute, onOpenAssetSelect }) {
-  const isUp = priceChange >= 0;
+export default function AssetBar({
+  openTabs = [
+    { symbol: 'USD/CAD', name: 'US Dollar / Canadian Dollar OTC', payout: 60, icon: '🇺🇸🇨🇦' },
+    { symbol: 'BTC/USDT OTC', name: 'Bitcoin Rapid OTC', payout: 85, icon: '₿' },
+    { symbol: 'EUR/USD OTC', name: 'Euro / US Dollar OTC', payout: 82, icon: '🇪🇺🇺🇸' }
+  ],
+  activeAsset = 'USD/CAD',
+  onSelectTab,
+  onCloseTab,
+  onOpenAssetSelect,
+  investmentAmount = 10900,
+  currency = 'INR'
+}) {
+  const currencySymbol = currency === 'INR' ? '₹' : '$';
 
   return (
-    <div className="sub-header-bar" style={{
+    <div style={{
+      height: 40,
+      background: '#131824',
+      borderBottom: '1px solid rgba(255, 255, 255, 0.08)',
       display: 'flex',
       alignItems: 'center',
-      justifyContent: 'space-between',
-      padding: '8px 14px',
-      background: 'var(--bg-secondary)',
-      borderBottom: '1px solid var(--border-primary)',
-      fontSize: '0.85rem'
+      padding: '0 8px',
+      gap: 6,
+      overflowX: 'auto',
+      userSelect: 'none'
     }}>
-      <div 
-        className="asset-pill-selector" 
+      {openTabs.map((tab) => {
+        const isActive = activeAsset === tab.symbol;
+        const potentialProfit = Math.round(investmentAmount * (1 + tab.payout / 100));
+
+        return (
+          <div
+            key={tab.symbol}
+            onClick={() => onSelectTab(tab.symbol)}
+            style={{
+              height: 32,
+              padding: '0 10px',
+              borderRadius: '6px 6px 0 0',
+              background: isActive ? '#182030' : '#141a28',
+              borderTop: isActive ? '2px solid #0077ff' : '2px solid transparent',
+              borderLeft: '1px solid rgba(255, 255, 255, 0.06)',
+              borderRight: '1px solid rgba(255, 255, 255, 0.06)',
+              display: 'flex',
+              alignItems: 'center',
+              gap: 8,
+              cursor: 'pointer',
+              color: isActive ? '#fff' : '#7b879c',
+              fontSize: '0.8rem',
+              fontWeight: 700,
+              flexShrink: 0,
+              transition: 'background 0.15s ease'
+            }}
+          >
+            {/* Currency Flag / Icon */}
+            <span style={{ fontSize: '0.85rem' }}>{tab.icon || '📈'}</span>
+
+            {/* Asset Symbol */}
+            <span>{tab.symbol}</span>
+
+            {/* Payout % */}
+            <span style={{
+              fontSize: '0.7rem',
+              color: '#0faf59',
+              fontWeight: 800
+            }}>
+              {tab.payout}%
+            </span>
+
+            {/* Potential Payout Pill (e.g. +17,440 ₹) */}
+            <span style={{
+              background: 'rgba(15, 175, 89, 0.15)',
+              color: '#0faf59',
+              padding: '1px 6px',
+              borderRadius: 4,
+              fontSize: '0.68rem',
+              fontWeight: 800,
+              fontFamily: 'JetBrains Mono, monospace'
+            }}>
+              +{potentialProfit.toLocaleString()} {currencySymbol}
+            </span>
+
+            {/* Close Tab Button */}
+            {openTabs.length > 1 && (
+              <span
+                onClick={(e) => {
+                  e.stopPropagation();
+                  onCloseTab?.(tab.symbol);
+                }}
+                style={{
+                  color: '#65728a',
+                  fontSize: '0.9rem',
+                  lineHeight: 1,
+                  padding: '2px 4px',
+                  borderRadius: 4,
+                  cursor: 'pointer'
+                }}
+                onMouseEnter={(e) => e.currentTarget.style.color = '#fff'}
+                onMouseLeave={(e) => e.currentTarget.style.color = '#65728a'}
+              >
+                ×
+              </span>
+            )}
+          </div>
+        );
+      })}
+
+      {/* Blue "+" Add Tab Button */}
+      <button
         onClick={onOpenAssetSelect}
         style={{
+          width: 26,
+          height: 26,
+          borderRadius: 6,
+          background: 'rgba(0, 119, 255, 0.18)',
+          border: '1px solid rgba(0, 119, 255, 0.35)',
+          color: '#0077ff',
           display: 'flex',
           alignItems: 'center',
-          gap: 6,
+          justifyContent: 'center',
           cursor: 'pointer',
-          padding: '4px 8px',
-          borderRadius: 6,
-          background: 'var(--bg-tertiary)',
-          border: '1px solid var(--border-secondary)'
+          fontWeight: 800,
+          fontSize: '1rem',
+          flexShrink: 0
         }}
+        title="Add Trading Pair Tab"
       >
-        <span style={{ 
-          width: 8, 
-          height: 8, 
-          borderRadius: '50%', 
-          background: '#f7931a', 
-          display: 'inline-block' 
-        }}></span>
-        <span style={{ fontWeight: 700, color: '#fff', fontSize: '0.88rem' }}>{asset || 'BTC/USDT OTC'}</span>
-        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-          <polyline points="6 9 12 15 18 9"></polyline>
-        </svg>
-      </div>
-
-      <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-        {/* Payout Tag */}
-        <span style={{
-          background: 'rgba(0, 229, 160, 0.12)',
-          color: '#00e5a0',
-          border: '1px solid rgba(0, 229, 160, 0.3)',
-          borderRadius: 4,
-          padding: '2px 6px',
-          fontSize: '0.72rem',
-          fontWeight: 700
-        }}>
-          PAYOUT 85%
-        </span>
-
-        {/* Sound Toggle */}
-        <button 
-          onClick={onToggleMute}
-          style={{
-            padding: 5,
-            borderRadius: 6,
-            background: isMuted ? 'rgba(255, 59, 92, 0.12)' : 'var(--bg-tertiary)',
-            color: isMuted ? '#ff5252' : '#8a94a8',
-            border: '1px solid var(--border-primary)',
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center'
-          }}
-          title={isMuted ? 'Unmute Sound' : 'Mute Sound'}
-        >
-          {isMuted ? (
-            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-              <line x1="1" y1="1" x2="23" y2="23"></line>
-              <path d="M9 9v3a3 3 0 0 0 5.12 2.12M15 9.34V4a3 3 0 0 0-5.94-.6"></path>
-              <path d="M17 16.95A7 7 0 0 1 5 12v-2m14 0v2a7 7 0 0 1-.11 1.23"></path>
-            </svg>
-          ) : (
-            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-              <polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"></polygon>
-              <path d="M19.07 4.93a10 10 0 0 1 0 14.14M15.54 8.46a5 5 0 0 1 0 7.07"></path>
-            </svg>
-          )}
-        </button>
-      </div>
+        +
+      </button>
     </div>
   );
 }

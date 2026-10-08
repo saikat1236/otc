@@ -15,10 +15,10 @@ const userId = getOrCreateUserId();
 // Determine socket server URL
 // In development, Vite proxies or we connect to 5005 directly.
 const SOCKET_URL = window.location.port === '3000' 
-  ? 'http://localhost:5000' 
-  : window.location.origin;
+  ? '' 
+  : (process.env.NODE_ENV === 'production' ? window.location.origin : 'http://localhost:5005');
 
-export const socket = io(SOCKET_URL, {
+export const socket = io(SOCKET_URL || undefined, {
   query: { userId },
   transports: ['websocket', 'polling'],
   reconnectionAttempts: 20,

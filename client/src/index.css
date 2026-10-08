@@ -61,26 +61,34 @@ html {
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
   -webkit-text-size-adjust: 100%;
-  background: #06090e;
+  background: #0d121d;
+  height: 100%;
+  width: 100%;
 }
 
 body {
   font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
-  background: var(--bg-primary);
+  background: #111622;
   color: var(--text-primary);
   overflow: hidden;
   height: 100vh;
   height: 100dvh;
-  max-width: 450px;
-  margin: 0 auto;
+  width: 100vw;
+  margin: 0;
+  padding: 0;
   display: flex;
   flex-direction: column;
   position: relative;
-  box-shadow: 0 0 60px rgba(0, 0, 0, 0.85);
-  border-left: 1px solid rgba(255, 255, 255, 0.05);
-  border-right: 1px solid rgba(255, 255, 255, 0.05);
   -webkit-tap-highlight-color: transparent;
   touch-action: manipulation;
+}
+
+#root {
+  width: 100%;
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
 }
 
 input, button, select {
@@ -93,7 +101,10 @@ input, button, select {
 
 button { cursor: pointer; user-select: none; }
 
-::-webkit-scrollbar { width: 0; height: 0; }
+::-webkit-scrollbar { width: 5px; height: 5px; }
+::-webkit-scrollbar-track { background: #111622; }
+::-webkit-scrollbar-thumb { background: #232c40; border-radius: 4px; }
+::-webkit-scrollbar-thumb:hover { background: #2f3a55; }
 
 /* ============================================
    Top Header — TradeNext Design
