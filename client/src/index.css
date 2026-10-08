@@ -107,19 +107,78 @@ button { cursor: pointer; user-select: none; }
 ::-webkit-scrollbar-thumb:hover { background: #2f3a55; }
 
 /* ============================================
-   Top Header — TradeNext Design
+   Top Header — TradeNext & Quotex Design
    ============================================ */
 #top-header {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  height: 56px;
+  height: 52px;
   padding: 0 14px;
   padding-top: var(--sat);
-  background: var(--bg-secondary);
-  border-bottom: 1px solid var(--border-primary);
+  background: #131824;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
   flex-shrink: 0;
-  z-index: 50;
+  z-index: 100;
+  user-select: none;
+}
+
+/* Responsive Utilities */
+@media (max-width: 768px) {
+  #top-header {
+    height: 48px;
+    padding: 0 10px;
+    padding-top: var(--sat);
+  }
+
+  .desktop-only {
+    display: none !important;
+  }
+
+  .mobile-only {
+    display: flex !important;
+  }
+
+  .mobile-hide {
+    display: none !important;
+  }
+
+  /* Responsive Studio Layout: Stack Chart over Trading Panel */
+  .trading-studio-layout {
+    flex-direction: column !important;
+  }
+
+  /* Desktop sidebar hidden from flow on mobile */
+  .desktop-sidebar-rail {
+    display: none !important;
+  }
+
+  /* Mobile Trading Panel at bottom */
+  .trading-panel-responsive {
+    width: 100% !important;
+    min-width: 100% !important;
+    height: auto !important;
+    max-height: 48vh !important;
+    border-left: none !important;
+    border-top: 1px solid rgba(255, 255, 255, 0.08) !important;
+    padding-bottom: calc(6px + var(--sab)) !important;
+  }
+
+  /* Center Chart Area takes available space */
+  .chart-area-responsive {
+    flex: 1 1 auto !important;
+    min-height: 240px !important;
+  }
+}
+
+@media (min-width: 769px) {
+  .mobile-only {
+    display: none !important;
+  }
+
+  .mobile-hamburger-btn {
+    display: none !important;
+  }
 }
 
 .header-left {

@@ -50,6 +50,7 @@ export default function App() {
   // Audio & UI Controls
   const [isMuted, setIsMuted] = useState(false);
   const [activeNav, setActiveNav] = useState('trade');
+  const [isMobileNavOpen, setIsMobileNavOpen] = useState(false);
 
   // Drawers & Modals
   const [ordersOpen, setOrdersOpen] = useState(false);
@@ -432,17 +433,21 @@ export default function App() {
         isMuted={isMuted}
         onToggleMute={toggleMute}
         onResetBalance={handleResetBalance}
+        onOpenMobileMenu={() => setIsMobileNavOpen(true)}
       />
 
-      {/* ── Main Trading Studio (Quotex 3-Column Desktop Layout) ── */}
-      <div style={{
-        display: 'flex',
-        flex: 1,
-        minHeight: 0,
-        position: 'relative',
-        overflow: 'hidden'
-      }}>
-        {/* Left Navigation Rail (Quotex Sidebar) */}
+      {/* ── Main Trading Studio (Responsive Studio Layout) ── */}
+      <div
+        className="trading-studio-layout"
+        style={{
+          display: 'flex',
+          flex: 1,
+          minHeight: 0,
+          position: 'relative',
+          overflow: 'hidden'
+        }}
+      >
+        {/* Left Navigation Rail (Quotex Sidebar + Mobile Drawer) */}
         <Sidebar
           activeNav={activeNav}
           onSelectNav={(nav) => setActiveNav(nav)}
@@ -454,17 +459,22 @@ export default function App() {
           isMuted={isMuted}
           onToggleMute={toggleMute}
           onOpenAssetSelect={() => setMarketOpen(true)}
+          isMobileOpen={isMobileNavOpen}
+          onCloseMobile={() => setIsMobileNavOpen(false)}
         />
 
         {/* Center: Multi-Asset Tabs + Canvas Chart */}
-        <div style={{
-          display: 'flex',
-          flexDirection: 'column',
-          flex: 1,
-          minWidth: 0,
-          position: 'relative',
-          overflow: 'hidden'
-        }}>
+        <div
+          className="chart-area-responsive"
+          style={{
+            display: 'flex',
+            flexDirection: 'column',
+            flex: 1,
+            minWidth: 0,
+            position: 'relative',
+            overflow: 'hidden'
+          }}
+        >
           {/* Multi-Asset Tabs Bar */}
           <AssetBar
             openTabs={openTabs}

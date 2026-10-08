@@ -74,18 +74,20 @@ export default function Chart({
     }
     if (allCandles.length === 0) return;
 
-    // Dimensions
-    const rightAxisWidth = 76;
-    const leftMargin = 38; // Room for Sentiment Bar on left
-    const topPadding = 24;
-    const bottomPadding = 26;
+    // Dimensions & Mobile Responsive Scaling
+    const isMobile = w < 600;
+    const rightAxisWidth = isMobile ? 54 : 76;
+    const leftMargin = isMobile ? 20 : 38; // Room for Sentiment Bar on left
+    const topPadding = isMobile ? 16 : 24;
+    const bottomPadding = isMobile ? 20 : 26;
     const chartW = w - rightAxisWidth;
     const chartH = h - topPadding - bottomPadding;
 
-    // Visible candle window
-    const maxVisibleCandles = Math.min(allCandles.length, zoomLevel);
+    // Visible candle window (slightly fewer on mobile for clear viewing)
+    const activeZoom = isMobile ? Math.min(zoomLevel, 24) : zoomLevel;
+    const maxVisibleCandles = Math.min(allCandles.length, activeZoom);
     const visible = allCandles.slice(-maxVisibleCandles);
-    const rightMarginOffsetCandles = 5.5; // Space for future guidelines & expiration
+    const rightMarginOffsetCandles = isMobile ? 4.0 : 5.5; // Space for guidelines & expiration
 
     // Price scale min/max
     let minP = Infinity, maxP = -Infinity;
@@ -111,12 +113,12 @@ export default function Chart({
     const totalSlots = maxVisibleCandles + rightMarginOffsetCandles;
     const usableW = chartW - leftMargin;
     const candleSpacing = usableW / totalSlots;
-    const candleW = Math.max(5, Math.min(18, candleSpacing * 0.68));
+    const candleW = Math.max(4, Math.min(18, candleSpacing * (isMobile ? 0.62 : 0.68)));
 
     const candleX = (i) => leftMargin + (i + 1) * candleSpacing;
 
     // ── 1. Subtle High-DPI Grid Lines & Right Price Scale ──
-    const gridLevels = 7;
+    const gridLevels = isMobile ? 5 : 7;
     ctx.lineWidth = 0.6;
     for (let i = 0; i <= gridLevels; i++) {
       const price = minP + (maxP - minP) * (i / gridLevels);
@@ -131,15 +133,14 @@ export default function Chart({
 
       // Right axis price text
       ctx.fillStyle = '#65748c';
-      ctx.font = '10px JetBrains Mono, monospace';
+      ctx.font = isMobile ? '8.5px JetBrains Mono, monospace' : '10px JetBrains Mono, monospace';
       ctx.textAlign = 'left';
-      // If price is small (like USD/CAD 1.42450), format with 5 decimals, else 2
-      const formattedPrice = price < 10 ? price.toFixed(5) : price.toFixed(2);
-      ctx.fillText(formattedPrice, chartW + 6, y + 3.5);
+      const formattedPrice = price < 10 ? price.toFixed(isMobile ? 4 : 5) : price.toFixed(isMobile ? 1 : 2);
+      ctx.fillText(formattedPrice, chartW + 4, y + 3);
     }
 
     // Vertical grid lines
-    const vStep = Math.max(3, Math.floor(maxVisibleCandles / 5));
+    const vStep = Math.max(3, Math.floor(maxVisibleCandles / (isMobile ? 3 : 5)));
     for (let i = 0; i < visible.length; i += vStep) {
       const x = candleX(i);
       ctx.strokeStyle = 'rgba(255, 255, 255, 0.03)';
@@ -155,20 +156,21 @@ export default function Chart({
         const timeStr = String(d.getHours()).padStart(2, '0') + ':' + 
                         String(d.getMinutes()).padStart(2, '0');
         ctx.fillStyle = '#65748c';
-        ctx.font = '9.5px JetBrains Mono, monospace';
+        ctx.font = isMobile ? '8.5px JetBrains Mono, monospace' : '9.5px JetBrains Mono, monospace';
         ctx.textAlign = 'center';
-        ctx.fillText(timeStr, x, h - 8);
+        ctx.fillText(timeStr, x, h - (isMobile ? 6 : 8));
       }
     }
 
     // ── 2. "Beginning of trade" and "End of trade" Vertical Dashed Lines ──
     const liveIndex = visible.length - 1;
     const startLineX = candleX(liveIndex);
-    const endLineX = candleX(liveIndex) + candleSpacing * 3.8;
+    const endLineOffset = isMobile ? Math.min(candleSpacing * 3.0, chartW - startLineX - 10) : candleSpacing * 3.8;
+    const endLineX = Math.min(chartW - 6, startLineX + endLineOffset);
 
     // Beginning of trade line
     ctx.save();
-    ctx.setLineDash([4, 4]);
+    ctx.setLineDash([3, 3]);
     ctx.strokeStyle = 'rgba(255, 255, 255, 0.2)';
     ctx.lineWidth = 1;
     ctx.beginPath();
@@ -177,9 +179,9 @@ export default function Chart({
     ctx.stroke();
 
     ctx.fillStyle = 'rgba(255, 255, 255, 0.45)';
-    ctx.font = '9px Inter, sans-serif';
+    ctx.font = isMobile ? '8px Inter, sans-serif' : '9px Inter, sans-serif';
     ctx.textAlign = 'center';
-    ctx.fillText('Beginning of trade', startLineX, topPadding + 14);
+    ctx.fillText(isMobile ? 'Start' : 'Beginning of trade', startLineX, topPadding + 12);
 
     // End of trade line
     ctx.strokeStyle = 'rgba(255, 255, 255, 0.35)';
@@ -190,21 +192,23 @@ export default function Chart({
     ctx.setLineDash([]);
 
     ctx.fillStyle = 'rgba(255, 255, 255, 0.7)';
-    ctx.font = '9.5px Inter, sans-serif';
-    ctx.fillText('End of trade', endLineX, topPadding + 14);
+    ctx.font = isMobile ? '8.5px Inter, sans-serif' : '9.5px Inter, sans-serif';
+    ctx.fillText(isMobile ? 'End' : 'End of trade', endLineX, topPadding + 12);
 
     // Round countdown badge on expiration line
     const mm = String(Math.floor(roundTimeRemaining / 60)).padStart(2, '0');
     const ss = String(roundTimeRemaining % 60).padStart(2, '0');
     const timerText = `${mm}:${ss}`;
+    const badgeW = isMobile ? 36 : 44;
+    const badgeH = isMobile ? 15 : 18;
     ctx.fillStyle = 'rgba(26, 33, 49, 0.9)';
-    ctx.fillRect(endLineX - 22, topPadding + 22, 44, 18);
+    ctx.fillRect(endLineX - badgeW / 2, topPadding + (isMobile ? 18 : 22), badgeW, badgeH);
     ctx.strokeStyle = 'rgba(255, 255, 255, 0.25)';
-    ctx.strokeRect(endLineX - 22, topPadding + 22, 44, 18);
+    ctx.strokeRect(endLineX - badgeW / 2, topPadding + (isMobile ? 18 : 22), badgeW, badgeH);
 
     ctx.fillStyle = '#00e5a0';
-    ctx.font = 'bold 9.5px JetBrains Mono, monospace';
-    ctx.fillText(timerText, endLineX, topPadding + 34);
+    ctx.font = isMobile ? 'bold 8.5px JetBrains Mono, monospace' : 'bold 9.5px JetBrains Mono, monospace';
+    ctx.fillText(timerText, endLineX, topPadding + (isMobile ? 29 : 34));
     ctx.restore();
 
     // ── 3. Technical Indicators (SMA/EMA) ──
@@ -315,23 +319,23 @@ export default function Chart({
     ctx.setLineDash([]);
 
     // Quotex Signature Blue Price Badge on Right Axis
-    const tagH = 20;
-    const tagW = 74;
+    const tagH = 18;
+    const tagW = isMobile ? 52 : 74;
     ctx.fillStyle = '#0077ff';
     ctx.beginPath();
-    ctx.roundRect ? ctx.roundRect(chartW + 1, liveY - tagH / 2, tagW, tagH, 4) : ctx.fillRect(chartW + 1, liveY - tagH / 2, tagW, tagH);
+    ctx.roundRect ? ctx.roundRect(chartW + 1, liveY - tagH / 2, tagW, tagH, 3) : ctx.fillRect(chartW + 1, liveY - tagH / 2, tagW, tagH);
     ctx.fill();
 
     ctx.fillStyle = '#ffffff';
-    ctx.font = 'bold 9.5px JetBrains Mono, monospace';
+    ctx.font = isMobile ? 'bold 8px JetBrains Mono, monospace' : 'bold 9.5px JetBrains Mono, monospace';
     ctx.textAlign = 'left';
-    const tagPriceStr = currentPrice < 10 ? currentPrice.toFixed(5) : currentPrice.toFixed(2);
-    ctx.fillText(tagPriceStr, chartW + 6, liveY + 3.5);
+    const tagPriceStr = currentPrice < 10 ? currentPrice.toFixed(isMobile ? 4 : 5) : currentPrice.toFixed(isMobile ? 1 : 2);
+    ctx.fillText(tagPriceStr, chartW + 3, liveY + 3);
 
     // Live blinking dot on candle
     ctx.fillStyle = '#0077ff';
     ctx.beginPath();
-    ctx.arc(liveX, liveY, 4, 0, Math.PI * 2);
+    ctx.arc(liveX, liveY, isMobile ? 3 : 4, 0, Math.PI * 2);
     ctx.fill();
     ctx.restore();
 
@@ -408,10 +412,10 @@ export default function Chart({
       {/* ── Quotex Bull/Bear Sentiment Meter Pinned to Far Left ── */}
       <div style={{
         position: 'absolute',
-        top: 24,
-        bottom: 26,
-        left: 6,
-        width: 22,
+        top: 18,
+        bottom: 22,
+        left: 4,
+        width: 16,
         display: 'flex',
         flexDirection: 'column',
         alignItems: 'center',
@@ -422,9 +426,9 @@ export default function Chart({
         <span style={{
           color: '#0faf59',
           fontWeight: 800,
-          fontSize: '0.68rem',
+          fontSize: '0.62rem',
           fontFamily: 'JetBrains Mono, monospace',
-          marginBottom: 4
+          marginBottom: 3
         }}>
           {sentimentPool.callPct}%
         </span>
@@ -432,7 +436,7 @@ export default function Chart({
         {/* Vertical Split Bar */}
         <div style={{
           flex: 1,
-          width: 6,
+          width: 5,
           borderRadius: 3,
           background: '#1a2233',
           display: 'flex',
@@ -457,9 +461,9 @@ export default function Chart({
         <span style={{
           color: '#ff4a4a',
           fontWeight: 800,
-          fontSize: '0.68rem',
+          fontSize: '0.62rem',
           fontFamily: 'JetBrains Mono, monospace',
-          marginTop: 4
+          marginTop: 3
         }}>
           {sentimentPool.putPct}%
         </span>
@@ -478,8 +482,8 @@ export default function Chart({
       {/* ── Quotex Floating Chart Tools (Bottom-Left) ── */}
       <div style={{
         position: 'absolute',
-        bottom: 12,
-        left: 36,
+        bottom: 8,
+        left: 22,
         display: 'flex',
         alignItems: 'center',
         gap: 6,
